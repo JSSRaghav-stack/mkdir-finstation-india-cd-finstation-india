@@ -145,11 +145,16 @@ export default function DCFValuation() {
         const sharesEst = live.marketCapCr > 0 && live.price > 0
           ? Math.round(live.marketCapCr / live.price)
           : DEFAULT_INPUTS.sharesOutstanding;
+        // revenue stored as Crore * 100, so divide by 100 to get Crore for DCF
+        const baseRevenue = live.revenue > 0
+          ? Math.max(1, Math.round(live.revenue / 100))
+          : DEFAULT_INPUTS.baseRevenue;
         setInputs((prev) => ({
           ...prev,
           sharesOutstanding: Math.max(1, sharesEst),
           netDebt: DEFAULT_INPUTS.netDebt,
-          baseRevenue: DEFAULT_INPUTS.baseRevenue,
+          baseRevenue,
+          ebitdaMargin: typeof live.ebitdaMargin === 'number' ? live.ebitdaMargin : prev.ebitdaMargin,
         }));
         setDataSource('live');
       }

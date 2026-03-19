@@ -173,6 +173,14 @@ const server = createServer(async (req, res) => {
       res.writeHead(200);
       res.end(JSON.stringify(data));
 
+    } else if (pathname === '/api/fundamentals') {
+      const { symbol } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=financialData,defaultKeyStatistics`;
+      const data = await fetchYF(url);
+      res.writeHead(200);
+      res.end(JSON.stringify(data));
+
     } else {
       res.writeHead(404);
       res.end(JSON.stringify({ error: 'Endpoint not found' }));

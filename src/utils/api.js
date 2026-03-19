@@ -74,8 +74,34 @@ export async function fetchNifty50Quotes() {
   }));
 }
 
+export async function fetchFundamentals(symbol) {
+  try {
+    const res = await fetch(`${API_BASE}/api/fundamentals?symbol=${encodeURIComponent(symbol)}`, { signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+    const result = data?.quoteSummary?.result?.[0];
+    if (!result) return null;
+    const fd = result.financialData || {};
+    const ks = result.defaultKeyStatistics || {};
+    return {
+      // Store revenue in Crore * 100 units to match existing display code (divides by 100 to show Cr)
+      revenue: Math.round((fd.totalRevenue?.raw || 0) / 100000),
+      netProfit: Math.round((fd.netIncomeToCommon?.raw || 0) / 100000),
+      ebitdaMargin: fd.ebitdaMargins?.raw != null ? Math.round(fd.ebitdaMargins.raw * 1000) / 10 : 'N/A',
+      roe: fd.returnOnEquity?.raw != null ? Math.round(fd.returnOnEquity.raw * 1000) / 10 : 'N/A',
+      debtEquity: fd.debtToEquity?.raw != null ? Math.round(fd.debtToEquity.raw * 100) / 100 : 'N/A',
+      currentRatio: fd.currentRatio?.raw != null ? Math.round(fd.currentRatio.raw * 100) / 100 : 'N/A',
+      evEbitda: ks.enterpriseToEbitda?.raw != null ? Math.round(ks.enterpriseToEbitda.raw * 10) / 10 : 'N/A',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchStockDetail(ticker) {
-  const quotes = await fetchQuote(ticker);
+  const [quotes, fundamentals] = await Promise.all([
+    fetchQuote(ticker),
+    fetchFundamentals(ticker),
+  ]);
   if (!quotes || quotes.length === 0) return null;
   const q = quotes[0];
   return {
@@ -92,15 +118,15 @@ export async function fetchStockDetail(ticker) {
     pe: q.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A',
     pb: q.priceToBook ? Math.round(q.priceToBook * 100) / 100 : 'N/A',
     eps: q.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A',
-    evEbitda: 'N/A',
+    evEbitda: fundamentals?.evEbitda ?? 'N/A',
     dividendYield: q.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0,
     beta: q.beta ? Math.round(q.beta * 100) / 100 : 'N/A',
-    revenue: 0,
-    netProfit: 0,
-    ebitdaMargin: 'N/A',
-    roe: 'N/A',
-    debtEquity: 'N/A',
-    currentRatio: 'N/A',
+    revenue: fundamentals?.revenue || 0,
+    netProfit: fundamentals?.netProfit || 0,
+    ebitdaMargin: fundamentals?.ebitdaMargin ?? 'N/A',
+    roe: fundamentals?.roe ?? 'N/A',
+    debtEquity: fundamentals?.debtEquity ?? 'N/A',
+    currentRatio: fundamentals?.currentRatio ?? 'N/A',
     dayHigh: q.regularMarketDayHigh || 0,
     dayLow: q.regularMarketDayLow || 0,
     open: q.regularMarketOpen || 0,
