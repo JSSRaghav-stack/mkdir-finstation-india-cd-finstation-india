@@ -183,7 +183,7 @@ export default function CompanyIntel() {
     v === 'N/A' || v === undefined || v === null ? 'N/A' : `${prefix}${v}`;
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-5" style={{ background: '#0a0a0f' }}>
+    <div className="h-full overflow-y-auto px-4 md:px-6 py-5" style={{ background: '#0a0a0f' }}>
       {/* Search */}
       <div className="relative mb-6" style={{ maxWidth: 480 }}>
         <div
@@ -274,7 +274,7 @@ export default function CompanyIntel() {
         <div className="space-y-4">
           <Skeleton w="100%" h={80} className="rounded-xl" />
           <Skeleton w="100%" h={280} className="rounded-xl" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {Array(6).fill(0).map((_, i) => <Skeleton key={i} w="100%" h={80} className="rounded-xl" />)}
           </div>
         </div>
@@ -301,7 +301,7 @@ export default function CompanyIntel() {
             className="rounded-xl p-5"
             style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
           >
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-1">
                   <h2 className="text-xl font-bold" style={{ color: '#f1f5f9' }}>{stockData.name}</h2>
@@ -343,7 +343,7 @@ export default function CompanyIntel() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div>
                   <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>Market Cap</div>
                   <div className="font-semibold" style={{ color: '#e2e8f0' }}>
@@ -441,7 +441,7 @@ export default function CompanyIntel() {
           )}
 
           {/* Financials grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Key Financials */}
             <div
               className="rounded-xl p-5"
@@ -472,7 +472,7 @@ export default function CompanyIntel() {
             {/* Valuation Ratios */}
             <div>
               <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Key Ratios & Metrics</h3>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
                 {[
                   { label: 'P/E Ratio', value: stockData.pe !== 'N/A' ? `${stockData.pe}x` : 'N/A', tooltip: 'Price to Earnings — how much you pay per ₹1 of profit' },
                   { label: 'P/B Ratio', value: stockData.pb !== 'N/A' ? `${stockData.pb}x` : 'N/A', tooltip: 'Price to Book — market price vs. book value of assets' },
@@ -498,7 +498,7 @@ export default function CompanyIntel() {
               style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
             >
               <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Today's Trading</h3>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { label: 'Open', value: stockData.open ? `₹${stockData.open.toLocaleString('en-IN')}` : 'N/A' },
                   { label: 'Day High', value: stockData.dayHigh ? `₹${stockData.dayHigh.toLocaleString('en-IN')}` : 'N/A' },
@@ -568,7 +568,7 @@ export default function CompanyIntel() {
               <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                 <div className="px-5 pt-4 pb-0">
                   <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>📋 Financial Ratios (20+)</div>
-                  <div className="flex gap-1 border-b" style={{ borderColor: '#1e1e2e' }}>
+                  <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: '#1e1e2e', scrollbarWidth: 'none' }}>
                     {tabs.map(t => (
                       <button key={t} onClick={() => setRatioTab(t)}
                         className="px-3 py-1.5 text-xs font-medium rounded-t-md transition-all"
@@ -579,7 +579,7 @@ export default function CompanyIntel() {
                     ))}
                   </div>
                 </div>
-                <div className="p-5 grid grid-cols-3 gap-3">
+                <div className="p-5 grid grid-cols-2 md:grid-cols-3 gap-3">
                   {rows.map((r,i) => (
                     <div key={i} className="rounded-lg p-3" style={{ background: '#0d0d15', border: '1px solid #1a1a2a' }}>
                       <div className="text-xs mb-1" style={{ color: '#475569' }} title={r.desc}>{r.label}</div>
@@ -604,7 +604,7 @@ export default function CompanyIntel() {
                   <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🤝 M&A & Corporate Actions</h3>
                   <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>Live M&A Tracker</span>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {maNews.map((n,i) => (
                     <div key={i} className="rounded-xl p-4 card-hover" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                       <span className="text-xs px-1.5 py-0.5 rounded mb-2 inline-block font-medium"
@@ -638,7 +638,7 @@ export default function CompanyIntel() {
                     {news.length} articles
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {news.slice(0, 6).map((n, i) => (
                     <div
                       key={i}

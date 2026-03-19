@@ -125,7 +125,7 @@ function SectorHeatmap({ sectors }) {
       <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
         <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🗺 Sector Heatmap</span>
       </div>
-      <div className="p-4 grid grid-cols-4 gap-2">
+      <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2">
         {sectors.map(sector => {
           const intensity = Math.min(Math.abs(sector.change)/maxAbs, 1);
           const isPos = sector.change >= 0;
@@ -219,7 +219,7 @@ export default function Dashboard() {
   const fmtT = d => d ? d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
 
   return (
-    <div className="h-full overflow-y-auto px-6 py-5" style={{ background: '#0a0a0f' }}>
+    <div className="h-full overflow-y-auto px-4 md:px-6 py-5" style={{ background: '#0a0a0f' }}>
       {chartModal && <ChartModal symbol={chartModal.symbol} label={chartModal.label} onClose={() => setChartModal(null)} />}
 
       <div className="flex items-center justify-between mb-4">
@@ -237,7 +237,7 @@ export default function Dashboard() {
         }}>{isLive ? '● Live (10s refresh)' : '● Mock Data'}</span>
       </div>
 
-      <div className="flex gap-4 mb-5">
+      <div className="grid grid-cols-2 md:flex gap-4 mb-5">
         <KPICard label="Nifty 50" symbol="^NSEI"
           value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
           change={indices.nifty?.change??0}
@@ -258,7 +258,7 @@ export default function Dashboard() {
           onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
         {loading ? (<><SkeletonBox w="100%" h={220} className="rounded-xl" /><SkeletonBox w="100%" h={220} className="rounded-xl" /></>) : (
           <><GainersLosersTable stocks={gainers} type="gainers" /><GainersLosersTable stocks={losers} type="losers" /></>
         )}
@@ -280,12 +280,12 @@ export default function Dashboard() {
             {newsLive ? 'ET · MC · NDTV · Mint · BS' : 'Mock data'}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {loading ? Array(6).fill(0).map((_,i) => <SkeletonBox key={i} w="100%" h={110} className="rounded-xl" />)
             : news.slice(0, 6).map((a, i) => <NewsCard key={a.id || i} article={a} />)}
         </div>
         {newsLive && news.length > 6 && (
-          <div className="grid grid-cols-3 gap-4 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
             {news.slice(6, 12).map((a, i) => <NewsCard key={`more-${a.id || i}`} article={a} />)}
           </div>
         )}
