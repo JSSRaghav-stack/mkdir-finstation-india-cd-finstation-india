@@ -5,6 +5,7 @@ import {
 import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
 import { calculateDCF, calculateSensitivity } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
+import { fetchStockDetail } from '../utils/api.js';
 
 function Tooltip2({ label, children }) {
   return (
@@ -46,7 +47,7 @@ function Slider({ label, value, min, max, step, onChange, suffix, tooltip }) {
   );
 }
 
-function NumberInput({ label, value, onChange, prefix, suffix, tooltip }) {
+function NumberInput({ label, value, onChange, tooltip }) {
   return (
     <div className="mb-3">
       <label className="block text-xs mb-1" style={{ color: '#64748b' }}>
@@ -56,7 +57,6 @@ function NumberInput({ label, value, onChange, prefix, suffix, tooltip }) {
         className="flex items-center gap-2 px-3 py-2 rounded-lg"
         style={{ background: '#0d0d15', border: '1px solid #2d2d45' }}
       >
-        {prefix && <span className="text-xs" style={{ color: '#475569' }}>{prefix}</span>}
         <input
           type="number"
           value={value}
@@ -64,7 +64,6 @@ function NumberInput({ label, value, onChange, prefix, suffix, tooltip }) {
           className="flex-1 bg-transparent outline-none text-sm font-medium"
           style={{ color: '#e2e8f0' }}
         />
-        {suffix && <span className="text-xs" style={{ color: '#475569' }}>{suffix}</span>}
       </div>
     </div>
   );
@@ -107,19 +106,57 @@ export default function DCFValuation() {
   const [selectedStock, setSelectedStock] = useState('');
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
   const [currentPrice, setCurrentPrice] = useState(2847);
+  const [fetchingStock, setFetchingStock] = useState(false);
+  const [dataSource, setDataSource] = useState('');
 
-  const handleStockChange = (ticker) => {
+  const handleStockChange = async (ticker) => {
     setSelectedStock(ticker);
-    const data = DETAILED_STOCK_DATA[ticker];
-    if (data) {
-      setCurrentPrice(data.price);
+    if (!ticker) {
+      setInputs(DEFAULT_INPUTS);
+      setCurrentPrice(2847);
+      setDataSource('');
+      return;
+    }
+
+    setFetchingStock(true);
+    setDataSource('');
+
+    // Try mock data first
+    const mockD = DETAILED_STOCK_DATA[ticker];
+    if (mockD) {
+      setCurrentPrice(mockD.price);
       setInputs((prev) => ({
         ...prev,
-        baseRevenue: Math.round(data.revenue / 100),
-        sharesOutstanding: Math.round(data.marketCapCr / data.price),
-        netDebt: Math.round((data.debtEquity || 0) * (data.marketCapCr * 0.5 / data.price)),
+        baseRevenue: Math.max(1, Math.round(mockD.revenue / 100)),
+        sharesOutstanding: Math.max(1, Math.round(mockD.marketCapCr / mockD.price)),
+        netDebt: Math.max(0, Math.round((mockD.debtEquity || 0) * (mockD.marketCapCr * 0.5 / mockD.price))),
+        ebitdaMargin: typeof mockD.ebitdaMargin === 'number' ? mockD.ebitdaMargin : 22,
       }));
+      setDataSource('mock');
+      setFetchingStock(false);
+      return;
     }
+
+    // Try live data
+    try {
+      const live = await fetchStockDetail(ticker);
+      if (live && live.price > 0) {
+        setCurrentPrice(live.price);
+        const sharesEst = live.marketCapCr > 0 && live.price > 0
+          ? Math.round(live.marketCapCr / live.price)
+          : DEFAULT_INPUTS.sharesOutstanding;
+        setInputs((prev) => ({
+          ...prev,
+          sharesOutstanding: Math.max(1, sharesEst),
+          netDebt: DEFAULT_INPUTS.netDebt,
+          baseRevenue: DEFAULT_INPUTS.baseRevenue,
+        }));
+        setDataSource('live');
+      }
+    } catch {
+      // leave defaults
+    }
+    setFetchingStock(false);
   };
 
   const set = (key) => (val) => setInputs((prev) => ({ ...prev, [key]: val }));
@@ -152,22 +189,28 @@ export default function DCFValuation() {
         {/* Stock selector */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-1" style={{ color: '#64748b' }}>
-            Reference Stock (optional)
+            Reference Stock (auto-fill)
           </label>
           <select
             value={selectedStock}
             onChange={(e) => handleStockChange(e.target.value)}
+            disabled={fetchingStock}
             className="w-full px-3 py-2 rounded-lg text-xs outline-none"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0' }}
+            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0', opacity: fetchingStock ? 0.6 : 1 }}
           >
             <option value="">— Custom / Unlisted —</option>
-            {Object.keys(DETAILED_STOCK_DATA).map((t) => {
-              const s = STOCK_LIST.find((x) => x.ticker === t);
-              return s ? (
-                <option key={t} value={t}>{s.name}</option>
-              ) : null;
-            })}
+            {STOCK_LIST.map((s) => (
+              <option key={s.ticker} value={s.ticker}>{s.name}</option>
+            ))}
           </select>
+          {dataSource && (
+            <div className="mt-1 text-xs" style={{ color: dataSource === 'live' ? '#4ade80' : '#60a5fa' }}>
+              {dataSource === 'live' ? '● Live data loaded' : '● Mock data loaded'}
+            </div>
+          )}
+          {fetchingStock && (
+            <div className="mt-1 text-xs" style={{ color: '#64748b' }}>Fetching data...</div>
+          )}
         </div>
 
         {selectedStock && (
@@ -312,19 +355,13 @@ export default function DCFValuation() {
       <div className="flex-1 overflow-y-auto px-6 py-5">
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4 mb-5">
-          <div
-            className="rounded-xl p-4"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-          >
+          <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
             <div className="text-xs mb-1" style={{ color: '#64748b' }}>Enterprise Value</div>
             <div className="text-xl font-bold" style={{ color: '#f1f5f9' }}>
               {formatCroreCompact(result.enterpriseValue)}
             </div>
           </div>
-          <div
-            className="rounded-xl p-4"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-          >
+          <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
             <div className="text-xs mb-1" style={{ color: '#64748b' }}>Equity Value</div>
             <div className="text-xl font-bold" style={{ color: '#f1f5f9' }}>
               {formatCroreCompact(result.equityValue)}
@@ -357,10 +394,7 @@ export default function DCFValuation() {
         </div>
 
         {/* DCF Table */}
-        <div
-          className="rounded-xl overflow-hidden mb-5"
-          style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-        >
+        <div className="rounded-xl overflow-hidden mb-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
           <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
             <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
               📊 DCF Model (₹ Crore)
@@ -419,63 +453,25 @@ export default function DCFValuation() {
         {/* Summary + Sensitivity */}
         <div className="grid grid-cols-2 gap-4 mb-5">
           {/* Valuation bridge */}
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-          >
+          <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
             <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
               <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Valuation Bridge</span>
             </div>
             <table className="w-full">
               <tbody>
-                <ResultRow
-                  label="Sum of PV(FCFs)"
-                  value={`₹${result.sumPvFcf.toLocaleString('en-IN')} Cr`}
-                  tooltip="Sum of present values of 5-year FCFs"
-                />
-                <ResultRow
-                  label="Terminal Value"
-                  value={`₹${result.terminalValue.toLocaleString('en-IN')} Cr`}
-                  tooltip="Gordon Growth Model terminal value at year 5"
-                />
-                <ResultRow
-                  label="PV of Terminal Value"
-                  value={`₹${result.pvTerminalValue.toLocaleString('en-IN')} Cr`}
-                  tooltip="Terminal value discounted back to present"
-                />
-                <ResultRow
-                  label="Enterprise Value"
-                  value={`₹${result.enterpriseValue.toLocaleString('en-IN')} Cr`}
-                  highlight
-                  tooltip="PV(FCFs) + PV(Terminal Value)"
-                />
-                <ResultRow
-                  label="Less: Net Debt"
-                  value={`₹${inputs.netDebt.toLocaleString('en-IN')} Cr`}
-                  indent
-                  tooltip="Net Debt = Total Debt - Cash"
-                />
-                <ResultRow
-                  label="Equity Value"
-                  value={`₹${result.equityValue.toLocaleString('en-IN')} Cr`}
-                  highlight
-                  tooltip="Enterprise Value minus Net Debt"
-                />
-                <ResultRow
-                  label="Intrinsic Value / Share"
-                  value={`₹${result.intrinsicValuePerShare.toLocaleString('en-IN')}`}
-                  highlight
-                  tooltip="Equity Value divided by shares outstanding"
-                />
+                <ResultRow label="Sum of PV(FCFs)" value={`₹${result.sumPvFcf.toLocaleString('en-IN')} Cr`} tooltip="Sum of present values of 5-year FCFs" />
+                <ResultRow label="Terminal Value" value={`₹${result.terminalValue.toLocaleString('en-IN')} Cr`} tooltip="Gordon Growth Model terminal value at year 5" />
+                <ResultRow label="PV of Terminal Value" value={`₹${result.pvTerminalValue.toLocaleString('en-IN')} Cr`} tooltip="Terminal value discounted back to present" />
+                <ResultRow label="Enterprise Value" value={`₹${result.enterpriseValue.toLocaleString('en-IN')} Cr`} highlight tooltip="PV(FCFs) + PV(Terminal Value)" />
+                <ResultRow label="Less: Net Debt" value={`₹${inputs.netDebt.toLocaleString('en-IN')} Cr`} indent tooltip="Net Debt = Total Debt - Cash" />
+                <ResultRow label="Equity Value" value={`₹${result.equityValue.toLocaleString('en-IN')} Cr`} highlight tooltip="Enterprise Value minus Net Debt" />
+                <ResultRow label="Intrinsic Value / Share" value={`₹${result.intrinsicValuePerShare.toLocaleString('en-IN')}`} highlight tooltip="Equity Value divided by shares outstanding" />
               </tbody>
             </table>
           </div>
 
           {/* Sensitivity */}
-          <div
-            className="rounded-xl overflow-hidden"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-          >
+          <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
             <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
               <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
                 <Tooltip2 label="Intrinsic value per share at different WACC and Terminal Growth Rate combinations">
@@ -529,10 +525,7 @@ export default function DCFValuation() {
         </div>
 
         {/* FCF Bar Chart */}
-        <div
-          className="rounded-xl p-5"
-          style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-        >
+        <div className="rounded-xl p-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
           <h3 className="text-sm font-semibold mb-4" style={{ color: '#f1f5f9' }}>
             Free Cash Flow by Year (₹ Cr)
           </h3>

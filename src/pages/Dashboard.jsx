@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MARKET_INDICES, ALL_NIFTY50, SECTOR_DATA, MOCK_NEWS } from '../data/mockData.js';
-import { formatPct, formatVolume } from '../utils/formatters.js';
+import { formatVolume } from '../utils/formatters.js';
+import { fetchIndices, fetchNifty50Quotes } from '../utils/api.js';
 
 function SkeletonBox({ w, h, className }) {
   return (
@@ -186,15 +187,36 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [indices, setIndices] = useState(MARKET_INDICES);
   const [stocks, setStocks] = useState(ALL_NIFTY50);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
-    // Simulate loading with mock data (Yahoo Finance blocked by CORS)
-    const timer = setTimeout(() => {
-      setIndices(MARKET_INDICES);
-      setStocks(ALL_NIFTY50);
-      setLoading(false);
-    }, 1200);
-    return () => clearTimeout(timer);
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        const [liveIndices, liveStocks] = await Promise.all([
+          fetchIndices(),
+          fetchNifty50Quotes(),
+        ]);
+
+        if (cancelled) return;
+
+        if (liveIndices && liveIndices.nifty && liveIndices.sensex) {
+          setIndices(liveIndices);
+          setIsLive(true);
+        }
+        if (liveStocks && liveStocks.length > 0) {
+          setStocks(liveStocks);
+        }
+      } catch {
+        // fall back to mock data — already set as default state
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => { cancelled = true; };
   }, []);
 
   const sorted = [...stocks].sort((a, b) => b.change - a.change);
@@ -203,32 +225,47 @@ export default function Dashboard() {
 
   return (
     <div className="h-full overflow-y-auto px-6 py-5" style={{ background: '#0a0a0f' }}>
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-4">
+        <div />
+        <span
+          className="text-xs px-2 py-1 rounded"
+          style={{
+            background: isLive ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
+            color: isLive ? '#4ade80' : '#64748b',
+            border: `1px solid ${isLive ? 'rgba(34,197,94,0.2)' : '#1e1e2e'}`,
+          }}
+        >
+          {isLive ? '● Live Data' : '● Mock Data'}
+        </span>
+      </div>
+
       {/* KPI Row */}
       <div className="flex gap-4 mb-5">
         <KPICard
           label="Nifty 50"
-          value={loading ? '—' : indices.nifty.value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          change={indices.nifty.change}
-          changeLabel={`(${indices.nifty.points >= 0 ? '+' : ''}${indices.nifty.points.toFixed(2)} pts)`}
+          value={loading ? '—' : (indices.nifty?.value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          change={indices.nifty?.change ?? 0}
+          changeLabel={`(${(indices.nifty?.points ?? 0) >= 0 ? '+' : ''}${(indices.nifty?.points ?? 0).toFixed(2)} pts)`}
           loading={loading}
         />
         <KPICard
           label="Sensex"
-          value={loading ? '—' : indices.sensex.value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          change={indices.sensex.change}
-          changeLabel={`(${indices.sensex.points >= 0 ? '+' : ''}${indices.sensex.points.toFixed(2)} pts)`}
+          value={loading ? '—' : (indices.sensex?.value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          change={indices.sensex?.change ?? 0}
+          changeLabel={`(${(indices.sensex?.points ?? 0) >= 0 ? '+' : ''}${(indices.sensex?.points ?? 0).toFixed(2)} pts)`}
           loading={loading}
         />
         <KPICard
           label="India VIX"
-          value={loading ? '—' : indices.vix.value.toFixed(2)}
-          change={indices.vix.change}
+          value={loading ? '—' : (indices.vix?.value ?? 0).toFixed(2)}
+          change={indices.vix?.change ?? 0}
           loading={loading}
         />
         <KPICard
           label="USD / INR"
-          value={loading ? '—' : `₹${indices.usdinr.value.toFixed(2)}`}
-          change={indices.usdinr.change}
+          value={loading ? '—' : `₹${(indices.usdinr?.value ?? 0).toFixed(2)}`}
+          change={indices.usdinr?.change ?? 0}
           loading={loading}
         />
       </div>

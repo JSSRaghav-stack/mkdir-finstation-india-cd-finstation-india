@@ -4,6 +4,8 @@ import {
 } from 'recharts';
 import { calculateLBO } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
+import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
+import { fetchStockDetail } from '../utils/api.js';
 
 function Tooltip2({ label, children }) {
   return (
@@ -106,7 +108,58 @@ function ReturnsBadge({ irr }) {
 
 export default function LBOAnalyzer() {
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
+  const [selectedStock, setSelectedStock] = useState('');
+  const [fetchingStock, setFetchingStock] = useState(false);
+  const [dataSource, setDataSource] = useState('');
   const set = (key) => (val) => setInputs((prev) => ({ ...prev, [key]: val }));
+
+  const handleStockChange = async (ticker) => {
+    setSelectedStock(ticker);
+    if (!ticker) {
+      setInputs(DEFAULT_INPUTS);
+      setDataSource('');
+      return;
+    }
+
+    setFetchingStock(true);
+    setDataSource('');
+
+    // Try mock first
+    const mockD = DETAILED_STOCK_DATA[ticker];
+    if (mockD) {
+      const revenue = mockD.revenue ? Math.round(mockD.revenue / 100) : DEFAULT_INPUTS.entryRevenue;
+      const margin = typeof mockD.ebitdaMargin === 'number' ? mockD.ebitdaMargin : DEFAULT_INPUTS.entryEbitdaMargin;
+      setInputs((prev) => ({
+        ...prev,
+        targetName: mockD.name,
+        entryRevenue: Math.max(1, revenue),
+        entryEbitdaMargin: margin,
+        exitEbitdaMargin: Math.min(50, margin + 2),
+      }));
+      setDataSource('mock');
+      setFetchingStock(false);
+      return;
+    }
+
+    // Try live data
+    try {
+      const live = await fetchStockDetail(ticker);
+      if (live && live.price > 0) {
+        const stock = STOCK_LIST.find((s) => s.ticker === ticker);
+        setInputs((prev) => ({
+          ...prev,
+          targetName: live.name || stock?.name || ticker.replace('.NS', ''),
+          entryRevenue: DEFAULT_INPUTS.entryRevenue,
+          entryEbitdaMargin: DEFAULT_INPUTS.entryEbitdaMargin,
+          exitEbitdaMargin: DEFAULT_INPUTS.exitEbitdaMargin,
+        }));
+        setDataSource('live');
+      }
+    } catch {
+      // leave defaults
+    }
+    setFetchingStock(false);
+  };
 
   const result = useMemo(() => {
     try {
@@ -130,6 +183,33 @@ export default function LBOAnalyzer() {
         style={{ width: 280, background: '#0d0d15', borderRight: '1px solid #1e1e2e' }}
       >
         <h2 className="text-sm font-bold mb-4" style={{ color: '#f1f5f9' }}>LBO Parameters</h2>
+
+        {/* Stock selector */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium mb-1" style={{ color: '#64748b' }}>
+            Reference Stock (auto-fill)
+          </label>
+          <select
+            value={selectedStock}
+            onChange={(e) => handleStockChange(e.target.value)}
+            disabled={fetchingStock}
+            className="w-full px-3 py-2 rounded-lg text-xs outline-none"
+            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0', opacity: fetchingStock ? 0.6 : 1 }}
+          >
+            <option value="">— Custom / Unlisted —</option>
+            {STOCK_LIST.map((s) => (
+              <option key={s.ticker} value={s.ticker}>{s.name}</option>
+            ))}
+          </select>
+          {dataSource && (
+            <div className="mt-1 text-xs" style={{ color: dataSource === 'live' ? '#4ade80' : '#60a5fa' }}>
+              {dataSource === 'live' ? '● Live data loaded' : '● Mock data loaded'}
+            </div>
+          )}
+          {fetchingStock && (
+            <div className="mt-1 text-xs" style={{ color: '#64748b' }}>Fetching data...</div>
+          )}
+        </div>
 
         {/* Target name */}
         <div className="mb-4">
@@ -266,10 +346,8 @@ export default function LBOAnalyzer() {
           <>
             {/* Returns summary */}
             <div className="grid grid-cols-3 gap-4 mb-5">
-              {/* IRR badge */}
               <ReturnsBadge irr={result.irr} />
 
-              {/* MoM */}
               <div
                 className="flex flex-col items-center justify-center rounded-xl p-4"
                 style={{
@@ -290,11 +368,7 @@ export default function LBOAnalyzer() {
                 </div>
               </div>
 
-              {/* Equity bridge */}
-              <div
-                className="rounded-xl p-4"
-                style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-              >
+              <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                 <div className="text-xs mb-3 font-medium" style={{ color: '#64748b' }}>Equity Bridge</div>
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs">
@@ -323,11 +397,7 @@ export default function LBOAnalyzer() {
                 { label: 'Entry Debt', value: formatCroreCompact(result.entryDebt), tooltip: 'Total acquisition debt' },
                 { label: 'Exit Debt', value: formatCroreCompact(result.exitDebt), tooltip: 'Remaining debt at exit after amortization' },
               ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-xl p-3"
-                  style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-                >
+                <div key={item.label} className="rounded-xl p-3" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                   <div className="text-xs mb-1" style={{ color: '#64748b' }}>
                     <Tooltip2 label={item.tooltip}>{item.label}</Tooltip2>
                   </div>
@@ -337,10 +407,7 @@ export default function LBOAnalyzer() {
             </div>
 
             {/* Debt schedule */}
-            <div
-              className="rounded-xl overflow-hidden mb-5"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-            >
+            <div className="rounded-xl overflow-hidden mb-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
               <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
                 <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
                   📋 Debt Schedule (₹ Crore)
@@ -365,27 +432,13 @@ export default function LBOAnalyzer() {
                         onMouseEnter={(e) => (e.currentTarget.style.background = '#161622')}
                         onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                       >
-                        <td className="px-3 py-2 text-left font-semibold" style={{ color: '#60a5fa' }}>
-                          Year {row.year}
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>
-                          {row.revenue.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>
-                          {row.ebitda.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#f59e0b' }}>
-                          ({row.mgmtFee.toLocaleString('en-IN')})
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#ef4444' }}>
-                          ({row.interest.toLocaleString('en-IN')})
-                        </td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#22c55e' }}>
-                          {row.debtRepaid.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold" style={{ color: '#a78bfa' }}>
-                          {row.debtBalance.toLocaleString('en-IN')}
-                        </td>
+                        <td className="px-3 py-2 text-left font-semibold" style={{ color: '#60a5fa' }}>Year {row.year}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.revenue.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.ebitda.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#f59e0b' }}>({row.mgmtFee.toLocaleString('en-IN')})</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#ef4444' }}>({row.interest.toLocaleString('en-IN')})</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#22c55e' }}>{row.debtRepaid.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right font-semibold" style={{ color: '#a78bfa' }}>{row.debtBalance.toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -394,10 +447,7 @@ export default function LBOAnalyzer() {
             </div>
 
             {/* Waterfall chart */}
-            <div
-              className="rounded-xl p-5"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-            >
+            <div className="rounded-xl p-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
               <h3 className="text-sm font-semibold mb-4" style={{ color: '#f1f5f9' }}>
                 Equity Waterfall (₹ Cr)
               </h3>
