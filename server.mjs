@@ -1,8 +1,24 @@
 import { createServer } from 'http';
 import https from 'https';
 import { parse } from 'url';
+import { readFileSync, existsSync } from 'fs';
+import { join, extname } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const PORT = 3001;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = process.env.PORT || 3001;
+
+const MIME_TYPES = {
+  '.html': 'text/html',
+  '.js':   'application/javascript',
+  '.css':  'text/css',
+  '.json': 'application/json',
+  '.png':  'image/png',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.woff2':'font/woff2',
+};
 
 // Read environment variables
 const FMP_API_KEY = process.env.FMP_API_KEY || '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
@@ -799,8 +815,28 @@ const server = createServer(async (req, res) => {
       res.end(anthropicRes.data);
 
     } else {
-      res.writeHead(404);
-      res.end(JSON.stringify({ error: 'Endpoint not found' }));
+      // ─── Serve static files from dist/ (production build) ─────────────
+      const distDir = join(__dirname, 'dist');
+      if (existsSync(distDir)) {
+        res.removeHeader('Content-Type'); // will be set per file
+        let filePath = join(distDir, pathname === '/' ? 'index.html' : pathname);
+        // SPA fallback — serve index.html for unknown routes
+        if (!existsSync(filePath) || !extname(filePath)) {
+          filePath = join(distDir, 'index.html');
+        }
+        try {
+          const content = readFileSync(filePath);
+          const mime = MIME_TYPES[extname(filePath)] || 'application/octet-stream';
+          res.writeHead(200, { 'Content-Type': mime });
+          res.end(content);
+        } catch {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+        }
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Endpoint not found' }));
+      }
     }
   } catch (e) {
     console.error('API Error:', e.message);

@@ -1,5 +1,10 @@
 // Yahoo Finance API helper via proxy server
-const API_BASE = 'http://localhost:3001';
+// In production (Railway/Render) same origin is used; locally points to proxy server
+const API_BASE = (typeof window !== 'undefined' &&
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1')
+  ? ''
+  : 'http://localhost:3001';
 
 // Default FMP API key (hardcoded — no setup needed)
 const DEFAULT_FMP_KEY = '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';

@@ -7,7 +7,9 @@
     "dev": "vite",
     "server": "node server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.mjs",
+    "build:start": "vite build && node server.mjs"
   },
   "dependencies": {
     "react": "^18.2.0",
