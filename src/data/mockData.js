@@ -197,10 +197,10 @@ export const SECTOR_DATA = [
 ];
 
 export const MARKET_INDICES = {
-  nifty: { value: 22456.80, change: 0.74, points: 165.40 },
-  sensex: { value: 73847.15, change: 0.69, points: 507.20 },
-  vix: { value: 14.23, change: -3.21, points: -0.47 },
-  usdinr: { value: 83.47, change: 0.12, points: 0.10 },
+  nifty: { value: 23190.15, change: 0.54, points: 124.85 },
+  sensex: { value: 76482.30, change: 0.51, points: 389.40 },
+  vix: { value: 13.87, change: -2.14, points: -0.30 },
+  usdinr: { value: 86.42, change: 0.08, points: 0.07 },
 };
 
 export const MOCK_NEWS = [

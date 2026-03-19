@@ -465,15 +465,19 @@ export default function CompanyIntel() {
 
             {/* Valuation Ratios */}
             <div>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Valuation Ratios</h3>
+              <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Key Ratios & Metrics</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'P/E Ratio', value: stockData.pe !== 'N/A' ? `${stockData.pe}x` : 'N/A', tooltip: 'Price to earnings ratio' },
-                  { label: 'P/B Ratio', value: stockData.pb !== 'N/A' ? `${stockData.pb}x` : 'N/A', tooltip: 'Price to book value ratio' },
-                  { label: 'EV/EBITDA', value: stockData.evEbitda === 'N/A' ? 'N/A' : `${stockData.evEbitda}x`, tooltip: 'Enterprise Value to EBITDA multiple' },
+                  { label: 'P/E Ratio', value: stockData.pe !== 'N/A' ? `${stockData.pe}x` : 'N/A', tooltip: 'Price to Earnings — how much you pay per ₹1 of profit' },
+                  { label: 'P/B Ratio', value: stockData.pb !== 'N/A' ? `${stockData.pb}x` : 'N/A', tooltip: 'Price to Book — market price vs. book value of assets' },
+                  { label: 'EV/EBITDA', value: stockData.evEbitda === 'N/A' ? 'N/A' : `${stockData.evEbitda}x`, tooltip: 'Enterprise Value to EBITDA — used for acquisition valuation' },
                   { label: 'Div. Yield', value: stockData.dividendYield !== undefined ? `${stockData.dividendYield}%` : 'N/A', tooltip: 'Annual dividend as % of stock price' },
-                  { label: 'Beta', value: stockData.beta ?? 'N/A', tooltip: 'Volatility relative to Nifty 50' },
-                  { label: 'EPS (TTM)', value: stockData.eps !== 'N/A' ? `₹${stockData.eps}` : 'N/A', tooltip: 'Earnings per share for trailing twelve months' },
+                  { label: 'Beta', value: stockData.beta ?? 'N/A', tooltip: 'Volatility vs Nifty 50 — >1 means more volatile than market' },
+                  { label: 'EPS (TTM)', value: stockData.eps !== 'N/A' ? `₹${stockData.eps}` : 'N/A', tooltip: 'Earnings Per Share — net profit divided by total shares' },
+                  { label: '52W High', value: stockData.high52w ? `₹${stockData.high52w.toLocaleString('en-IN')}` : 'N/A', tooltip: '52-week highest traded price' },
+                  { label: '52W Low', value: stockData.low52w ? `₹${stockData.low52w.toLocaleString('en-IN')}` : 'N/A', tooltip: '52-week lowest traded price' },
+                  { label: 'Market Cap', value: stockData.marketCapCr ? formatMarketCap(stockData.marketCapCr) : 'N/A', tooltip: 'Total market capitalization of the company' },
+                  { label: 'Prev Close', value: stockData.prevClose ? `₹${stockData.prevClose.toLocaleString('en-IN')}` : 'N/A', tooltip: 'Previous trading day closing price' },
                 ].map((item) => (
                   <MetricCard key={item.label} label={item.label} value={item.value} tooltip={item.tooltip} />
                 ))}

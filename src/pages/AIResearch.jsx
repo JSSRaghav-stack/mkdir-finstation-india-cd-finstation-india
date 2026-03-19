@@ -97,60 +97,97 @@ function renderInline(text) {
   });
 }
 
-// Demo report for when API key is missing or call fails
-function getDemoReport(stockName, reportType, stance) {
+// Sector-specific demo report templates
+const SECTOR_TEMPLATES = {
+  Banking: {
+    overview: (name) => `${name} is one of India's leading private sector banks, with a well-diversified loan book spanning retail, corporate, and SME segments. Its competitive moat stems from:\n\n- **Strong CASA franchise** driving low-cost deposit base and superior NIM profile\n- **Robust asset quality** with GNPA ratio consistently below sector average\n- **Digital banking leadership** with 70%+ transactions happening on digital channels`,
+    financials: (name) => `Net Interest Income (NII) has grown at **15.2% CAGR** over 3 years driven by loan book expansion and stable margins:\n\n- NII (FY26E): ₹42,800 Cr (+14.5% YoY)\n- Net Interest Margin: 4.1% (sector best-in-class)\n- Net Profit: ₹16,200 Cr (+18.3% YoY)\n- Return on Equity: 17.4% (sector average: 14%)\n- GNPA: 2.1% | NNPA: 0.5% (well-controlled)`,
+    valuation: () => `At current levels, the stock trades at **2.8x FY26E P/BV** vs. sector average of 2.2x, a premium justified by superior ROE and asset quality. DCF-implied fair value suggests **14% upside**.\n\n- P/BV (FY26E): 2.8x vs. peer median 2.2x\n- P/E (FY26E): 18.5x vs. sector 16x\n- DCF Fair Value: Band of ₹1,150–1,280 (WACC: 12%, terminal growth: 4%)`,
+    catalysts: () => `- **Credit cost normalization**: Improving asset quality to drive lower provisions and PAT growth acceleration\n- **Retail loan growth**: Home loans and personal credit to drive 16–18% loan book CAGR in FY27\n- **Fee income diversification**: Cross-sell of insurance, mutual funds boosting non-interest income`,
+    risks: () => `- **NIM compression**: Rising deposit costs may pressure margins by 10–15 bps in H1 FY27\n- **Unsecured lending stress**: Any deterioration in personal loan/credit card portfolio could spike credit costs\n- **Regulatory tightening**: RBI norms on LCR and risk weights may constrain loan growth`,
+  },
+  'Information Technology': {
+    overview: (name) => `${name} is a global IT services and solutions provider, delivering digital transformation, cloud, and AI-led services to Fortune 500 clients across BFSI, retail, and manufacturing verticals. Key strengths:\n\n- **Large deal pipeline** with TCV of $4.2B in active pursuit stage\n- **AI & GenAI capability** with 12,000+ trained practitioners and proprietary platforms\n- **Margin resilience** driven by automation and offshore leverage`,
+    financials: (name) => `Revenue in USD terms has grown at **8.3% CAGR** over 3 years with improving deal conversion:\n\n- Revenue (FY26E): $18.4B (+7.8% YoY in USD)\n- EBIT Margin: 21.5% (expansion of 50bps YoY)\n- Net Profit: ₹28,400 Cr (+12.1% YoY)\n- Return on Equity: 29.3% (sector leading)\n- Free Cash Flow conversion: 92% of net profit`,
+    valuation: () => `The stock trades at **24.2x FY26E EPS**, a slight premium to Nifty IT index average of 22x, justified by consistent execution and margin stability.\n\n- P/E (FY26E): 24.2x vs. Nifty IT median 22x\n- EV/EBITDA: 17.8x (5-year mean: 18.2x — at slight discount)\n- DCF Fair Value: ₹1,520–1,680 (WACC: 11%, terminal growth: 3.5%)`,
+    catalysts: () => `- **BFSI deal ramp-up**: $1.2B BFSI mega deal to contribute meaningfully from Q2 FY27\n- **Margin expansion**: Pyramid optimization and AI-led automation to add 80–100bps to margins\n- **USD tailwind**: INR depreciation adds ~2–3% to INR revenue without effort`,
+    risks: () => `- **Client budget pressure**: Macro slowdown in US/Europe may delay discretionary IT spend\n- **Visa & immigration**: H-1B visa restrictions could increase onsite costs by 100–150bps\n- **Attrition uptick**: Return of hiring demand in US tech could pressure talent retention`,
+  },
+  FMCG: {
+    overview: (name) => `${name} is a household consumer goods company with a dominant portfolio of iconic brands across food, personal care, and home care categories. Its moat is built on:\n\n- **Unmatched distribution reach** across 8M+ retail outlets including rural kirana stores\n- **Pricing power** with brand loyalty enabling regular price hikes ahead of inflation\n- **R&D-led premiumization** driving ASP expansion across categories`,
+    financials: (name) => `Volume-led revenue growth has accelerated to **7.8% CAGR** as rural demand recovers:\n\n- Revenue (FY26E): ₹62,400 Cr (+9.2% YoY)\n- EBITDA Margin: 24.8% (180bps expansion on lower input costs)\n- Net Profit: ₹11,600 Cr (+14.7% YoY)\n- Return on Equity: 78% (asset-light model advantage)\n- Dividend Yield: 2.1% (consistent payout history)`,
+    valuation: () => `At current levels, the stock trades at **52x FY26E EPS**, in line with its historical premium multiple for FMCG quality:\n\n- P/E (FY26E): 52x vs. FMCG sector median 45x\n- EV/EBITDA: 36x (10-year mean: 38x — slight discount)\n- DCF Fair Value: ₹2,450–2,650 (WACC: 10.5%, terminal growth: 5%)`,
+    catalysts: () => `- **Rural demand revival**: Government capex and good monsoon to drive 2x urban volume growth in rural\n- **Premiumization tailwind**: Mid-to-premium mix shift to expand EBITDA margins by 100bps in FY27\n- **New category launches**: Entry into health & wellness segment addresses ₹15,000 Cr TAM`,
+    risks: () => `- **Commodity inflation**: Crude, palm oil, packaging cost spikes could compress gross margins 100–150bps\n- **Competition from D2C**: Aggressive new-age brands gaining share in urban premium segments\n- **Rural slowdown risk**: Delayed monsoon or inflation could defer rural consumption recovery`,
+  },
+  Pharmaceuticals: {
+    overview: (name) => `${name} is a leading Indian pharmaceutical company with a strong presence in branded generics (India), generic exports (US), and API manufacturing. Key differentiators:\n\n- **US generic pipeline** with 180+ ANDA filings and 12 Para IV opportunities\n- **Chronic therapy focus** in India business providing revenue visibility\n- **API integration** providing cost advantage vs. peers`,
+    financials: (name) => `Revenue has grown at **13.6% CAGR** driven by US market share gains and India branded growth:\n\n- Revenue (FY26E): ₹18,200 Cr (+12.4% YoY)\n- EBITDA Margin: 24.2% (stable, with R&D at 7% of sales)\n- Net Profit: ₹3,100 Cr (+16.8% YoY)\n- Return on Equity: 18.6%\n- US Revenue Share: 42% of total (key growth engine)`,
+    valuation: () => `The stock trades at **28x FY26E EPS**, in line with Indian pharma peers:\n\n- P/E (FY26E): 28x vs. pharma sector median 27x\n- EV/EBITDA: 18x (5-year mean: 17x — marginal premium)\n- DCF Fair Value: ₹1,580–1,720 (WACC: 11.5%, terminal growth: 4%)`,
+    catalysts: () => `- **Complex generic approvals**: 3 complex injectables pending USFDA approval with combined TAM of $2.4B\n- **India branded business**: Chronic therapies (cardio, diabetes) growing 15%+ — premium to IPM growth\n- **Specialty pharma push**: Biosimilars pipeline to unlock $800M opportunity in US by FY28`,
+    risks: () => `- **USFDA inspection risk**: Any form 483 observations could delay US product launches\n- **Price erosion in US**: Intensifying generic competition may compress US margins by 100bps\n- **API supply dependency**: Geopolitical risks to China API sourcing could increase input costs`,
+  },
+  Automobile: {
+    overview: (name) => `${name} is a leading Indian automaker with a strong portfolio spanning passenger vehicles, commercial vehicles, and electric mobility. Its competitive edge:\n\n- **SUV-led product refresh** capturing India's fastest-growing vehicle segment\n- **EV transition readiness** with dedicated EV platform and ₹8,000 Cr investment committed\n- **Export market penetration** diversifying revenue beyond domestic cycle`,
+    financials: (name) => `Revenue has compounded at **16.8% CAGR** as SUV volumes and realizations improve:\n\n- Revenue (FY26E): ₹1,42,000 Cr (+11.3% YoY)\n- EBITDA Margin: 14.8% (expansion of 60bps on product mix improvement)\n- Net Profit: ₹12,400 Cr (+19.2% YoY)\n- Return on Equity: 20.1%\n- Domestic Market Share: 18.4% (gaining 80bps YoY)`,
+    valuation: () => `At current levels, stock trades at **22x FY26E EPS**, reasonable for a growth compounder in auto space:\n\n- P/E (FY26E): 22x vs. auto sector median 20x\n- EV/EBITDA: 13x (5-year mean: 12x)\n- DCF Fair Value: ₹2,800–3,100 (WACC: 11%, terminal growth: 4.5%)`,
+    catalysts: () => `- **New SUV launches**: 3 new SUV models in FY27 to sustain volume momentum of 12–14% growth\n- **EV ramp-up**: EV volume to scale 3x by FY27, improving EV EBITDA from negative to breakeven\n- **International expansion**: Middle East and Africa markets targeted for 50,000+ unit exports by FY27`,
+    risks: () => `- **Commodity cost pressure**: Steel, aluminum, semiconductor costs could compress margins 100–150bps\n- **EV adoption slowdown**: Slow charging infra build-out may delay EV volume targets\n- **Competitive intensity**: Hyundai, Kia, and new Chinese OEM entrants increasing competitive pressure`,
+  },
+};
+
+const DEFAULT_TEMPLATE = {
+  overview: (name) => `${name} is a well-established Indian company with a strong market position in its core business segments. Its competitive advantages include:\n\n- **Market leadership** in its primary business segments with consistent market share gains\n- **Strong balance sheet** with net cash position enabling reinvestment and shareholder returns\n- **Management quality** with proven track record of capital allocation and execution`,
+  financials: (name) => `Revenue has compounded at **12% CAGR** over 3 years with improving profitability:\n\n- Revenue (FY26E): Growing double-digits YoY\n- EBITDA Margin: Expanding 50–100bps annually on operating leverage\n- Net Profit Growth: 15–18% YoY driven by operating and financial leverage\n- Return on Equity: Above sector average\n- Free Cash Flow: Strong generation supporting dividends and buybacks`,
+  valuation: () => `The stock trades at a valuation reflecting its quality premium vs. sector peers:\n\n- P/E (FY26E): In line with or at modest premium to sector median\n- EV/EBITDA: Near historical mean levels\n- DCF Fair Value: 10–15% upside from current levels (WACC: 11.5%, terminal growth: 4%)`,
+  catalysts: () => `- **Volume/revenue growth acceleration**: Improving demand environment and market share gains\n- **Margin expansion**: Cost optimization and operating leverage driving profitability improvement\n- **New business/product initiatives**: Adjacent opportunity expansion into new markets or geographies`,
+  risks: () => `- **Macro slowdown**: Any deterioration in domestic consumption or global demand\n- **Input cost inflation**: Commodity or energy cost spikes compressing margins\n- **Regulatory changes**: Policy shifts affecting pricing, taxation, or competitive dynamics`,
+};
+
+function getDemoReport(stockName, reportType, stance, sector) {
+  const rating = stance === 'Bull Case' ? 'BUY' : stance === 'Bear Case' ? 'SELL' : 'HOLD';
+  const tpl = SECTOR_TEMPLATES[sector] || DEFAULT_TEMPLATE;
+
+  const conclusion = stance === 'Bull Case'
+    ? `${stockName} offers an attractive risk-reward at current valuations with multiple earnings catalysts on the horizon. We initiate with a **BUY** rating. Investors should accumulate on dips for a 12-month investment horizon.`
+    : stance === 'Bear Case'
+    ? `While ${stockName} is a quality business, elevated valuations and near-term execution headwinds limit upside. We maintain a **SELL** rating — a correction toward fair value provides a better entry opportunity.`
+    : `${stockName} remains a quality compounder but near-term upside appears fairly priced in. We maintain a **HOLD** — existing investors should stay invested while fresh money may await a better entry point.`;
+
   return `# Equity Research Report: ${stockName}
 
 ## Investment Summary
 
-**Rating: ${stance === 'Bull Case' ? 'BUY' : stance === 'Bear Case' ? 'SELL' : 'HOLD'}** | Target Price: ₹${Math.floor(Math.random() * 500 + 2500)} | CMP: ₹2,847
+**Rating: ${rating}** | Analyst Stance: ${stance} | Sector: ${sector || 'Equity'}
 
-${stockName} presents a compelling ${stance === 'Bull Case' ? 'investment opportunity' : stance === 'Bear Case' ? 'downside risk' : 'investment case'} over a 12-month horizon. The company's diversified business model, strong execution track record, and expanding addressable markets underpin our **${stance === 'Bull Case' ? 'BUY' : stance === 'Bear Case' ? 'SELL' : 'HOLD'}** recommendation.
+${stockName} presents a ${stance === 'Bull Case' ? 'compelling investment opportunity' : stance === 'Bear Case' ? 'cautious outlook' : 'balanced investment case'} over a 12-month horizon. Our analysis of fundamentals, valuations, and sectoral dynamics underpins our **${rating}** recommendation.
 
 ## Company Overview
 
-${stockName} is one of India's premier conglomerates, operating across high-growth verticals including digital services, retail, and energy. The company's competitive moat derives from:
-
-- **Scale advantages** in procurement and distribution across ₹9,41,000 Cr revenue base
-- **Ecosystem integration** creating high switching costs across its 500M+ subscriber base
-- **Capital allocation discipline** with ROCE consistently above 13% over 5 years
+${tpl.overview(stockName)}
 
 ## Financial Performance
 
-Revenue has compounded at **12.4% CAGR** over the past 3 years, driven by strong volume growth in digital and retail segments. Key metrics:
-
-- Revenue (FY26E): ₹10,23,000 Cr (+8.7% YoY)
-- EBITDA Margin: 17.2% (expanding 80bps YoY on operating leverage)
-- Net Profit: ₹72,500 Cr (+18.4% YoY)
-- Return on Equity: 10.8% (sector average: 12%)
-- Net Debt/EBITDA: 0.8x (comfortable leverage)
+${tpl.financials(stockName)}
 
 ## Valuation
 
-At the current price of ₹2,847, the stock trades at **28.4x FY26E EPS** vs. sector average of 24x, a 18% premium justified by its superior growth trajectory. Our DCF-implied target of ₹3,200 suggests **12% upside** from current levels.
-
-- P/E (FY26E): 28.4x vs. peer median 24.0x
-- EV/EBITDA: 14.2x (5-year mean: 13.5x, slight premium)
-- DCF Fair Value: ₹3,150–3,250 (WACC: 11.5%, terminal growth: 4%)
+${tpl.valuation()}
 
 ## Key Catalysts
 
-- **Jio monetization acceleration**: ARPU expansion to ₹220+ as 5G upgrades drive premium plan adoption
-- **Retail EBITDA breakeven**: New Commerce segment approaching profitability in H1 FY27
-- **Green energy capex optionality**: ₹75,000 Cr solar/hydrogen investments position company for ESG re-rating
+${tpl.catalysts()}
 
 ## Key Risks
 
-- **Regulatory risk**: TRAI tariff intervention could cap Jio ARPU expansion
-- **Capex intensity**: ₹1.5L Cr committed capex over FY25-27 may pressure free cash flow
-- **Succession uncertainty**: Transition of leadership at key business units remains an overhang
+${tpl.risks()}
 
 ## Conclusion
 
-${stockName} remains a core holding for long-term India equity portfolios. ${stance === 'Bull Case' ? 'The risk-reward is attractive at current valuations with multiple earnings catalysts on the horizon. We initiate with a BUY rating and a 12-month target price of ₹3,200.' : stance === 'Bear Case' ? 'However, elevated valuations and near-term execution challenges warrant caution. We maintain a SELL rating with a 12-month target of ₹2,400 implying 16% downside.' : 'While the long-term thesis remains intact, near-term valuations appear fair. We maintain a HOLD with a target of ₹2,950, implying 4% upside.'} Investors should use dips towards ₹2,600 as accumulation opportunities.
+${conclusion}
 
 ---
-*This report is for informational purposes only and does not constitute investment advice.*`;
+*This is a demo report. Add your Anthropic API key for a live AI-generated report tailored to ${stockName}. Not investment advice.*`;
 }
 
 export default function AIResearch() {
@@ -192,6 +229,7 @@ export default function AIResearch() {
 
     const stock = STOCK_LIST.find((s) => s.ticker === selectedStock);
     const stockName = stock?.name || selectedStock;
+    const stockSector = stock?.sector || 'Equity';
     const wordCount = reportType === 'Quick Note' ? '500 words' : '1200 words';
 
     const prompt = `You are a senior equity research analyst at a top Indian investment bank. Write a ${wordCount} ${reportType.toLowerCase()} on ${stockName} listed on NSE India from a ${stance.toLowerCase()} perspective.
@@ -241,7 +279,7 @@ Use ₹ for currency. Be specific with numbers. Sound like a real sell-side rese
     } catch (e) {
       stopLoadingMessages();
       // Fallback to demo report if API fails
-      const demo = getDemoReport(stockName, reportType, stance);
+      const demo = getDemoReport(stockName, reportType, stance, stockSector);
       setReport(demo);
       setReportMeta({
         stock: stockName,
