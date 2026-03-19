@@ -6,7 +6,7 @@ const PORT = 3001;
 
 // Read environment variables
 const FMP_API_KEY = process.env.FMP_API_KEY || '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'd6u2f89r01qp1k9auq1gd6u2f89r01qp1k9auq20';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // ─── Screener.in helpers ───────────────────────────────────────────────────

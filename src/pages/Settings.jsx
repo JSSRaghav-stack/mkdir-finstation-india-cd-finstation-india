@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const DEFAULT_KEYS = {
   fmp_api_key: '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs',
+  finnhub_api_key: 'd6u2f89r01qp1k9auq1gd6u2f89r01qp1k9auq20',
 };
 
 function APIKeyInput({ label, keyName, description, placeholder }) {
@@ -99,7 +100,7 @@ export default function Settings() {
             { name: 'Screener.in', status: 'Always Active', desc: 'TTM financials for Indian stocks (Revenue, EBITDA, EPS). No key needed.', color: '#22c55e' },
             { name: 'Anthropic Claude', status: 'API Key Required', desc: 'AI-powered equity research reports with deep fundamental analysis.', color: '#f59e0b' },
             { name: 'Financial Modeling Prep', status: 'Built-in Key', desc: '200+ financial ratios, income statements, cash flow, balance sheet data. Default key included.', color: '#22c55e' },
-            { name: 'Finnhub', status: 'API Key Required', desc: 'Real-time company news, market news, sentiment scores.', color: '#f59e0b' },
+            { name: 'Finnhub', status: 'Built-in Key', desc: 'Real-time company news, market news, sentiment scores. Default key included.', color: '#22c55e' },
             { name: 'Indian News RSS', status: 'Always Active', desc: 'Live news from Economic Times, Moneycontrol, NDTV Profit, LiveMint, Business Standard. No key needed.', color: '#22c55e' },
           ].map(s => (
             <div key={s.name} className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid #1a1a2a' }}>

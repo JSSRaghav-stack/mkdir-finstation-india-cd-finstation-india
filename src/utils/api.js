@@ -4,6 +4,9 @@ const API_BASE = 'http://localhost:3001';
 // Default FMP API key (hardcoded — no setup needed)
 const DEFAULT_FMP_KEY = '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
 
+// Default Finnhub API key (hardcoded — no setup needed)
+const DEFAULT_FINNHUB_KEY = 'd6u2f89r01qp1k9auq1gd6u2f89r01qp1k9auq20';
+
 export async function fetchQuote(symbols) {
   try {
     const res = await fetch(`${API_BASE}/api/quote?symbols=${encodeURIComponent(symbols)}`, { signal: AbortSignal.timeout(8000) });
@@ -268,9 +271,10 @@ export async function fetchFMPFinancials(symbol, apiKey) {
 
 // Fetch live company news from Finnhub (with Yahoo Finance fallback)
 export async function fetchCompanyNews(symbol, companyName, finnhubKey) {
+  const key = finnhubKey || localStorage.getItem('finnhub_api_key') || DEFAULT_FINNHUB_KEY;
   try {
     const params = new URLSearchParams({ symbol });
-    if (finnhubKey) params.set('finnhubKey', finnhubKey);
+    if (key) params.set('finnhubKey', key);
     if (companyName) params.set('company', companyName);
     const res = await fetch(
       `${API_BASE}/api/news/company?${params.toString()}`,
@@ -286,8 +290,9 @@ export async function fetchCompanyNews(symbol, companyName, finnhubKey) {
 
 // Fetch live market news from Finnhub (with Yahoo Finance fallback)
 export async function fetchMarketNews(finnhubKey) {
+  const key = finnhubKey || localStorage.getItem('finnhub_api_key') || DEFAULT_FINNHUB_KEY;
   try {
-    const params = finnhubKey ? `?finnhubKey=${encodeURIComponent(finnhubKey)}` : '';
+    const params = key ? `?finnhubKey=${encodeURIComponent(key)}` : '';
     const res = await fetch(
       `${API_BASE}/api/news/market${params}`,
       { signal: AbortSignal.timeout(15000) }
