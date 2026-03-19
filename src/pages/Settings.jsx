@@ -89,6 +89,7 @@ export default function Settings() {
             { name: 'Anthropic Claude', status: 'API Key Required', desc: 'AI-powered equity research reports with deep fundamental analysis.', color: '#f59e0b' },
             { name: 'Financial Modeling Prep', status: 'API Key Required', desc: '200+ financial ratios, income statements, cash flow, balance sheet data.', color: '#f59e0b' },
             { name: 'Finnhub', status: 'API Key Required', desc: 'Real-time company news, market news, sentiment scores.', color: '#f59e0b' },
+            { name: 'Indian News RSS', status: 'Always Active', desc: 'Live news from Economic Times, Moneycontrol, NDTV Profit, LiveMint, Business Standard. No key needed.', color: '#22c55e' },
           ].map(s => (
             <div key={s.name} className="flex items-center justify-between py-2" style={{ borderBottom: '1px solid #1a1a2a' }}>
               <div>
@@ -106,7 +107,7 @@ export default function Settings() {
 
       <div className="mt-4 rounded-xl p-4" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.2)' }}>
         <div className="text-xs" style={{ color: '#60a5fa' }}>
-          💡 <strong>Tip:</strong> For the best experience, add all three API keys. The site works without any keys using comprehensive mock data and Yahoo Finance's free tier.
+          💡 <strong>Tip:</strong> For the best experience, add all three API keys. The site works without any keys using comprehensive mock data, Yahoo Finance's free tier, and live Indian news RSS feeds (ET, Moneycontrol, NDTV Profit, LiveMint, Business Standard).
         </div>
       </div>
       <div className="h-6" />

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MARKET_INDICES, ALL_NIFTY50, SECTOR_DATA, MOCK_NEWS } from '../data/mockData.js';
 import { formatVolume } from '../utils/formatters.js';
-import { fetchIndices, fetchNifty50Quotes, fetchChart } from '../utils/api.js';
+import { fetchIndices, fetchNifty50Quotes, fetchChart, fetchIndiaNews } from '../utils/api.js';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -146,17 +146,24 @@ function SectorHeatmap({ sectors }) {
 }
 
 function NewsCard({ article }) {
-  const colors = { Markets:'#3b82f6', Macro:'#8b5cf6', Earnings:'#22c55e', Deals:'#f59e0b', Policy:'#06b6d4', Regulation:'#f97316' };
+  const colors = { Markets:'#3b82f6', Macro:'#8b5cf6', Earnings:'#22c55e', Deals:'#f59e0b', Policy:'#06b6d4', Regulation:'#f97316', Business:'#a78bfa' };
   const color = colors[article.category] || '#64748b';
+  const isExternal = article.url && article.url !== '#';
+  const Wrapper = ({ children }) => isExternal
+    ? <a href={article.url} target="_blank" rel="noopener noreferrer" className="rounded-xl p-4 card-hover flex flex-col gap-2 block" style={{ background: '#12121a', border: '1px solid #1e1e2e', textDecoration: 'none', cursor: 'pointer' }}>{children}</a>
+    : <div className="rounded-xl p-4 card-hover flex flex-col gap-2" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>{children}</div>;
   return (
-    <div className="rounded-xl p-4 card-hover flex flex-col gap-2" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+    <Wrapper>
       <div className="flex items-center justify-between">
         <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ background: `${color}20`, color }}>{article.category}</span>
         <span className="text-xs" style={{ color: '#475569' }}>{article.time}</span>
       </div>
       <p className="text-sm font-medium leading-snug" style={{ color: '#e2e8f0', lineHeight: '1.4' }}>{article.title}</p>
-      <div className="text-xs" style={{ color: '#64748b' }}>{article.source}</div>
-    </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs" style={{ color: '#64748b' }}>{article.source}</span>
+        {isExternal && <span className="text-xs" style={{ color: '#334155' }}>↗</span>}
+      </div>
+    </Wrapper>
   );
 }
 
@@ -175,6 +182,8 @@ export default function Dashboard() {
   const [isLive, setIsLive] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [chartModal, setChartModal] = useState(null);
+  const [news, setNews] = useState(MOCK_NEWS);
+  const [newsLive, setNewsLive] = useState(false);
   const mounted = useRef(true);
 
   const loadData = useCallback(async () => {
@@ -189,12 +198,20 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadNews = useCallback(async () => {
+    const liveNews = await fetchIndiaNews();
+    if (!mounted.current) return;
+    if (liveNews.length > 0) { setNews(liveNews); setNewsLive(true); }
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     loadData();
+    loadNews();
     const iv = setInterval(loadData, 10000);
-    return () => { mounted.current = false; clearInterval(iv); };
-  }, [loadData]);
+    const newsIv = setInterval(loadNews, 2 * 60 * 1000); // refresh news every 2 min
+    return () => { mounted.current = false; clearInterval(iv); clearInterval(newsIv); };
+  }, [loadData, loadNews]);
 
   const sorted = [...stocks].sort((a,b) => b.change - a.change);
   const gainers = sorted.slice(0,5);
@@ -253,13 +270,25 @@ export default function Dashboard() {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>📰 Market News</h2>
-          <span className="text-xs" style={{ color: '#334155' }}>{lastRefresh ? `Updated ${fmtT(lastRefresh)}` : 'Updated 5 min ago'}</span>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>📰 Indian Market News</h2>
+            {newsLive && (
+              <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)' }}>● Live</span>
+            )}
+          </div>
+          <span className="text-xs" style={{ color: '#334155' }}>
+            {newsLive ? 'ET · MC · NDTV · Mint · BS' : 'Mock data'}
+          </span>
         </div>
         <div className="grid grid-cols-3 gap-4">
           {loading ? Array(6).fill(0).map((_,i) => <SkeletonBox key={i} w="100%" h={110} className="rounded-xl" />)
-            : MOCK_NEWS.map(a => <NewsCard key={a.id} article={a} />)}
+            : news.slice(0, 6).map((a, i) => <NewsCard key={a.id || i} article={a} />)}
         </div>
+        {newsLive && news.length > 6 && (
+          <div className="grid grid-cols-3 gap-4 mt-4">
+            {news.slice(6, 12).map((a, i) => <NewsCard key={`more-${a.id || i}`} article={a} />)}
+          </div>
+        )}
       </div>
       <div className="h-6" />
     </div>

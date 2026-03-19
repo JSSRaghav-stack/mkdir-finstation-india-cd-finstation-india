@@ -295,6 +295,21 @@ export async function fetchMarketNews(finnhubKey) {
   }
 }
 
+// Fetch live Indian market news from RSS feeds (ET, Moneycontrol, NDTV Profit, LiveMint, BS)
+export async function fetchIndiaNews() {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/india-news`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const json = await res.json();
+    return json?.news || [];
+  } catch (e) {
+    console.error('fetchIndiaNews error:', e.message);
+    return [];
+  }
+}
+
 // Fetch Yahoo Finance news for a symbol
 export async function fetchYahooNews(symbol) {
   try {

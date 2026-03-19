@@ -267,6 +267,85 @@ async function fetchFinnhub(path, apiKey) {
   }
 }
 
+// ─── Indian News RSS feeds ──────────────────────────────────────────────────
+
+function parseRSS(xml) {
+  const items = [];
+  const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
+  let match;
+  while ((match = itemRegex.exec(xml)) !== null) {
+    const itemXml = match[1];
+    const getTag = (tag) => {
+      const m = itemXml.match(new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${tag}>`, 'i'));
+      return m ? m[1].trim() : '';
+    };
+    const title = getTag('title')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#8217;/g, "'").replace(/&#8216;/g, "'").replace(/&quot;/g, '"')
+      .replace(/&#\d+;/g, '').trim();
+    const linkMatch = itemXml.match(/<link[^>]*>([^<]+)<\/link>/) || itemXml.match(/<guid[^>]*>([^<]+)<\/guid>/);
+    const link = linkMatch ? linkMatch[1].trim() : '';
+    const pubDate = getTag('pubDate');
+    const desc = getTag('description').replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, ' ').trim().substring(0, 160);
+    if (title && title.length > 10) items.push({ title, link, pubDate, description: desc });
+  }
+  return items;
+}
+
+function parseRSSDate(dateStr) {
+  if (!dateStr) return 0;
+  try { return new Date(dateStr).getTime(); } catch { return 0; }
+}
+
+function relativeTime(dateStr) {
+  if (!dateStr) return 'Recent';
+  try {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  } catch { return 'Recent'; }
+}
+
+const INDIA_NEWS_FEEDS = [
+  { url: 'https://economictimes.indiatimes.com/markets/rss.cms',        source: 'Economic Times',   category: 'Markets'  },
+  { url: 'https://www.moneycontrol.com/rss/latestnews.xml',             source: 'Moneycontrol',     category: 'Markets'  },
+  { url: 'https://feeds.feedburner.com/NdtvProfit-LatestNews',          source: 'NDTV Profit',      category: 'Business' },
+  { url: 'https://www.livemint.com/rss/markets',                        source: 'LiveMint',         category: 'Markets'  },
+  { url: 'https://www.business-standard.com/rss/markets-106.rss',       source: 'Business Standard',category: 'Markets'  },
+  { url: 'https://www.thehindubusinessline.com/markets/?service=rss',   source: 'Hindu BusinessLine',category:'Macro'    },
+];
+
+let indiaNewsCache = null;
+let indiaNewsFetchTime = 0;
+const INDIA_NEWS_TTL = 2 * 60 * 1000; // 2 minutes
+
+async function fetchIndiaNewsFeed(feed) {
+  try {
+    const res = await httpsGet(feed.url, {
+      'User-Agent': 'Mozilla/5.0 (compatible; FinStation/1.0)',
+      'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+    }, 10000);
+    if (res.status !== 200) return [];
+    const items = parseRSS(res.data);
+    return items.slice(0, 5).map((item, i) => ({
+      id: `${feed.source}-${i}-${Date.now()}`,
+      title: item.title,
+      source: feed.source,
+      url: item.link || '#',
+      time: relativeTime(item.pubDate),
+      pubDate: item.pubDate,
+      category: feed.category,
+      summary: item.description || '',
+    }));
+  } catch (e) {
+    console.error(`RSS fetch error [${feed.source}]:`, e.message);
+    return [];
+  }
+}
+
 // Convert NSE symbol (RELIANCE.NS) to Finnhub format (NSE:RELIANCE)
 function toFinnhubSymbol(symbol) {
   if (symbol.includes(':')) return symbol; // already formatted
@@ -530,6 +609,36 @@ const server = createServer(async (req, res) => {
 
     // ─── Combined news endpoints ─────────────────────────────────────────
 
+    } else if (pathname === '/api/india-news') {
+      // Serve cached results if still fresh
+      if (indiaNewsCache && (Date.now() - indiaNewsFetchTime) < INDIA_NEWS_TTL) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, news: indiaNewsCache, cached: true }));
+        return;
+      }
+
+      // Fetch all RSS feeds in parallel
+      const results = await Promise.allSettled(INDIA_NEWS_FEEDS.map(fetchIndiaNewsFeed));
+      const allNews = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+      // Sort newest first
+      allNews.sort((a, b) => parseRSSDate(b.pubDate) - parseRSSDate(a.pubDate));
+
+      // Deduplicate by title prefix
+      const seen = new Set();
+      const deduped = allNews.filter(item => {
+        const key = item.title.substring(0, 50).toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      indiaNewsCache = deduped.slice(0, 18);
+      indiaNewsFetchTime = Date.now();
+
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, news: indiaNewsCache }));
+
     } else if (pathname === '/api/news/market') {
       const { finnhubKey } = query;
       const apiKey = finnhubKey || FINNHUB_API_KEY;
@@ -705,7 +814,7 @@ server.listen(PORT, () => {
   console.log('   Market data  → Yahoo Finance (NSE/BSE)');
   console.log('   Fundamentals → Yahoo Finance quoteSummary + Screener.in');
   console.log('   Ratios       → Financial Modeling Prep (FMP)');
-  console.log('   News         → Finnhub + Yahoo Finance');
+  console.log('   News         → Finnhub + Yahoo Finance + Indian RSS (ET, MC, NDTV, Mint, BS)');
   console.log('   15-20 min delayed market data — FREE\n');
   if (FMP_API_KEY) console.log('   ✓ FMP API key loaded from environment');
   if (FINNHUB_API_KEY) console.log('   ✓ Finnhub API key loaded from environment');
