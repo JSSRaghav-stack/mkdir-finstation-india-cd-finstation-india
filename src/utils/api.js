@@ -53,11 +53,18 @@ export async function fetchIndices() {
   const bsesn = find('^BSESN');
   const vix = find('^INDIAVIX');
   const usd = find('USDINR=X');
+
+  // Fix USD/INR — if value looks too small (< 10), it may be inverted (USD per INR)
+  let usdinrValue = usd?.regularMarketPrice || 0;
+  if (usdinrValue > 0 && usdinrValue < 10) {
+    usdinrValue = Math.round((1 / usdinrValue) * 100) / 100;
+  }
+
   return {
     nifty: nsei ? { value: nsei.regularMarketPrice, change: nsei.regularMarketChangePercent, points: nsei.regularMarketChange } : null,
     sensex: bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
     vix: vix ? { value: vix.regularMarketPrice, change: vix.regularMarketChangePercent, points: vix.regularMarketChange } : null,
-    usdinr: usd ? { value: usd.regularMarketPrice, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
+    usdinr: usd ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
   };
 }
 
@@ -173,4 +180,131 @@ export async function fetchStockDetail(ticker) {
     change: q.regularMarketChange || 0,
     changePct: q.regularMarketChangePercent || 0,
   };
+}
+
+// ─── FMP API functions ─────────────────────────────────────────────────────
+
+// Fetch 20+ financial ratios from FMP
+export async function fetchFMPRatios(symbol, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/fmp/ratios?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(apiKey)}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const json = await res.json();
+    if (!json?.success || !json.data || !Array.isArray(json.data) || json.data.length === 0) return null;
+    const r = json.data[0];
+    return {
+      // Valuation
+      pe: r.priceEarningsRatio ?? 'N/A',
+      forwardPE: r.priceEarningsToGrowthRatio ?? 'N/A',
+      pb: r.priceToBookRatio ?? 'N/A',
+      ps: r.priceToSalesRatio ?? 'N/A',
+      pFcf: r.priceToFreeCashFlowsRatio ?? 'N/A',
+      evEbitda: r.enterpriseValueMultiple ?? 'N/A',
+      evEbit: r.evToOperatingCashFlow ?? 'N/A',
+      evRevenue: r.enterpriseValueOverEBITDA ?? 'N/A',
+      // Profitability
+      roe: r.returnOnEquity != null ? Math.round(r.returnOnEquity * 1000) / 10 : 'N/A',
+      roa: r.returnOnAssets != null ? Math.round(r.returnOnAssets * 1000) / 10 : 'N/A',
+      roic: r.returnOnCapitalEmployed != null ? Math.round(r.returnOnCapitalEmployed * 1000) / 10 : 'N/A',
+      grossMargin: r.grossProfitMargin != null ? Math.round(r.grossProfitMargin * 1000) / 10 : 'N/A',
+      ebitdaMargin: r.ebitdaMargin != null ? Math.round(r.ebitdaMargin * 1000) / 10 : 'N/A',
+      operatingMargin: r.operatingProfitMargin != null ? Math.round(r.operatingProfitMargin * 1000) / 10 : 'N/A',
+      netMargin: r.netProfitMargin != null ? Math.round(r.netProfitMargin * 1000) / 10 : 'N/A',
+      fcfMargin: r.freeCashFlowOperatingCashFlowRatio != null ? Math.round(r.freeCashFlowOperatingCashFlowRatio * 1000) / 10 : 'N/A',
+      // Leverage
+      debtEquity: r.debtEquityRatio ?? 'N/A',
+      netDebtEbitda: r.netDebtToEBITDA ?? 'N/A',
+      interestCoverage: r.interestCoverage ?? 'N/A',
+      debtAssets: r.totalDebtToAssets ?? 'N/A',
+      // Liquidity
+      currentRatio: r.currentRatio ?? 'N/A',
+      quickRatio: r.quickRatio ?? 'N/A',
+      cashRatio: r.cashRatio ?? 'N/A',
+      operatingCashFlowRatio: r.operatingCashFlowRatio ?? 'N/A',
+      // Efficiency
+      assetTurnover: r.assetTurnover ?? 'N/A',
+      inventoryTurnover: r.inventoryTurnover ?? 'N/A',
+      receivablesTurnover: r.receivablesTurnover ?? 'N/A',
+      dso: r.daysOfSalesOutstanding ?? 'N/A',
+      dpo: r.daysPayablesOutstanding ?? 'N/A',
+      // Growth
+      revenueGrowth: r.revenueGrowth != null ? Math.round(r.revenueGrowth * 1000) / 10 : 'N/A',
+      epsGrowth: r.epsgrowth != null ? Math.round(r.epsgrowth * 1000) / 10 : 'N/A',
+    };
+  } catch (e) {
+    console.error('fetchFMPRatios error:', e.message);
+    return null;
+  }
+}
+
+// Fetch income statement, balance sheet, and cash flow from FMP
+export async function fetchFMPFinancials(symbol, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/fmp/financials?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(apiKey)}`,
+      { signal: AbortSignal.timeout(20000) }
+    );
+    const json = await res.json();
+    if (!json?.success) return null;
+    return {
+      income: json.income || [],
+      balance: json.balance || [],
+      cashflow: json.cashflow || [],
+    };
+  } catch (e) {
+    console.error('fetchFMPFinancials error:', e.message);
+    return null;
+  }
+}
+
+// Fetch live company news from Finnhub (with Yahoo Finance fallback)
+export async function fetchCompanyNews(symbol, companyName, finnhubKey) {
+  try {
+    const params = new URLSearchParams({ symbol });
+    if (finnhubKey) params.set('finnhubKey', finnhubKey);
+    if (companyName) params.set('company', companyName);
+    const res = await fetch(
+      `${API_BASE}/api/news/company?${params.toString()}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const json = await res.json();
+    return json?.news || [];
+  } catch (e) {
+    console.error('fetchCompanyNews error:', e.message);
+    return [];
+  }
+}
+
+// Fetch live market news from Finnhub (with Yahoo Finance fallback)
+export async function fetchMarketNews(finnhubKey) {
+  try {
+    const params = finnhubKey ? `?finnhubKey=${encodeURIComponent(finnhubKey)}` : '';
+    const res = await fetch(
+      `${API_BASE}/api/news/market${params}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const json = await res.json();
+    return json?.news || [];
+  } catch (e) {
+    console.error('fetchMarketNews error:', e.message);
+    return [];
+  }
+}
+
+// Fetch Yahoo Finance news for a symbol
+export async function fetchYahooNews(symbol) {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/yahoo-news?symbol=${encodeURIComponent(symbol)}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    const json = await res.json();
+    return json?.news || [];
+  } catch {
+    return [];
+  }
 }

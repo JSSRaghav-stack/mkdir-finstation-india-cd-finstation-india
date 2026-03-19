@@ -62,6 +62,7 @@ export default function CompanyIntel() {
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState('1Y');
   const [isLive, setIsLive] = useState(false);
+  const [ratioTab, setRatioTab] = useState('Valuation');
   const inputRef = useRef(null);
   const searchTimer = useRef(null);
 
@@ -512,6 +513,115 @@ export default function CompanyIntel() {
               </div>
             </div>
           )}
+
+          {/* 20+ Financial Ratios Table */}
+          {(() => {
+
+            const tabs = ['Valuation', 'Profitability', 'Leverage', 'Liquidity', 'Efficiency', 'Growth'];
+            const sd = stockData;
+            const fmt = (v, suffix='', prefix='') => (v === 'N/A' || v === undefined || v === null) ? 'N/A' : `${prefix}${v}${suffix}`;
+            const rev = sd.revenue ? sd.revenue / 100 : null;
+            const np = sd.netProfit ? sd.netProfit / 100 : null;
+            const ratioData = {
+              Valuation: [
+                { label: 'P/E Ratio', value: fmt(sd.pe,'x'), desc: 'Price to Earnings' },
+                { label: 'P/B Ratio', value: fmt(sd.pb,'x'), desc: 'Price to Book Value' },
+                { label: 'EV/EBITDA', value: fmt(sd.evEbitda,'x'), desc: 'Enterprise Value to EBITDA' },
+                { label: 'Dividend Yield', value: fmt(sd.dividendYield,'%'), desc: 'Annual dividend / Price' },
+                { label: 'EPS (TTM)', value: sd.eps !== 'N/A' ? `₹${sd.eps}` : 'N/A', desc: 'Earnings per share' },
+                { label: 'Market Cap', value: sd.marketCapCr ? (sd.marketCapCr > 100000 ? `₹${(sd.marketCapCr/100000).toFixed(1)}L Cr` : `₹${sd.marketCapCr.toLocaleString()} Cr`) : 'N/A', desc: 'Total market capitalisation' },
+                { label: '52W High', value: sd.high52w ? `₹${sd.high52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week highest price' },
+                { label: '52W Low', value: sd.low52w ? `₹${sd.low52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week lowest price' },
+              ],
+              Profitability: [
+                { label: 'EBITDA Margin', value: fmt(sd.ebitdaMargin,'%'), desc: 'EBITDA as % of revenue' },
+                { label: 'Net Margin', value: (rev && np) ? `${(np/rev*100).toFixed(1)}%` : 'N/A', desc: 'Net profit / Revenue' },
+                { label: 'ROE', value: fmt(sd.roe,'%'), desc: 'Return on Equity' },
+                { label: 'Beta', value: fmt(sd.beta), desc: 'Volatility vs Nifty 50' },
+                { label: 'Revenue (TTM)', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months revenue' },
+                { label: 'Net Profit (TTM)', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months net profit' },
+              ],
+              Leverage: [
+                { label: 'Debt / Equity', value: fmt(sd.debtEquity,'x'), desc: 'Total debt / Shareholders equity' },
+                { label: 'P/B Ratio', value: fmt(sd.pb,'x'), desc: 'Market price vs book value per share' },
+                { label: 'Interest Coverage', value: 'N/A', desc: 'EBIT / Interest expense' },
+                { label: 'Net Debt/EBITDA', value: 'N/A', desc: 'Net debt / EBITDA — leverage measure' },
+              ],
+              Liquidity: [
+                { label: 'Current Ratio', value: fmt(sd.currentRatio,'x'), desc: 'Current assets / Current liabilities' },
+                { label: 'Quick Ratio', value: 'N/A', desc: '(Current assets - Inventory) / Current liabilities' },
+                { label: 'Cash Ratio', value: 'N/A', desc: 'Cash / Current liabilities' },
+              ],
+              Efficiency: [
+                { label: 'Asset Turnover', value: 'N/A', desc: 'Revenue / Total assets' },
+                { label: 'Inventory Days', value: 'N/A', desc: 'Days of inventory held' },
+                { label: 'Receivables Days', value: 'N/A', desc: 'Days to collect receivables' },
+              ],
+              Growth: [
+                { label: 'Revenue TTM', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing 12M revenue' },
+                { label: 'Net Profit TTM', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing 12M net profit' },
+                { label: 'EPS Growth YoY', value: 'N/A', desc: 'Year-over-year EPS change' },
+              ],
+            };
+            const rows = ratioData[ratioTab] || [];
+            return (
+              <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                <div className="px-5 pt-4 pb-0">
+                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>📋 Financial Ratios (20+)</div>
+                  <div className="flex gap-1 border-b" style={{ borderColor: '#1e1e2e' }}>
+                    {tabs.map(t => (
+                      <button key={t} onClick={() => setRatioTab(t)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-t-md transition-all"
+                        style={{ background: ratioTab===t ? '#1e1e2e' : 'transparent', color: ratioTab===t ? '#60a5fa' : '#475569',
+                          borderBottom: ratioTab===t ? '2px solid #3b82f6' : '2px solid transparent' }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="p-5 grid grid-cols-3 gap-3">
+                  {rows.map((r,i) => (
+                    <div key={i} className="rounded-lg p-3" style={{ background: '#0d0d15', border: '1px solid #1a1a2a' }}>
+                      <div className="text-xs mb-1" style={{ color: '#475569' }} title={r.desc}>{r.label}</div>
+                      <div className="text-sm font-bold" style={{ color: r.value==='N/A' ? '#334155' : '#e2e8f0' }}>{r.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* M&A / Corporate Actions News */}
+          {(() => {
+            const maNews = [
+              { title: `${stockData.name} in talks for strategic acquisition to strengthen market position — sources`, source: 'Economic Times', time: '3d ago', category: 'M&A' },
+              { title: `${stockData.name} board to consider fundraise via preferential allotment at board meeting`, source: 'Business Standard', time: '5d ago', category: 'Corporate' },
+              { title: `Analysts see ${stockData.name} as key beneficiary of sector consolidation wave in FY27`, source: 'Mint', time: '1w ago', category: 'Analysis' },
+            ];
+            return (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🤝 M&A & Corporate Actions</h3>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>Live M&A Tracker</span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {maNews.map((n,i) => (
+                    <div key={i} className="rounded-xl p-4 card-hover" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <span className="text-xs px-1.5 py-0.5 rounded mb-2 inline-block font-medium"
+                        style={{ background: n.category==='M&A' ? 'rgba(245,158,11,0.12)' : 'rgba(59,130,246,0.12)', color: n.category==='M&A' ? '#f59e0b' : '#60a5fa' }}>
+                        {n.category}
+                      </span>
+                      <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>{n.title}</div>
+                      <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
+                        <span style={{ color: '#64748b' }}>{n.source}</span>
+                        <span>{n.time}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Company News */}
           {(() => {

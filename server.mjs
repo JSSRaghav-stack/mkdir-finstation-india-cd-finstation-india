@@ -4,6 +4,11 @@ import { parse } from 'url';
 
 const PORT = 3001;
 
+// Read environment variables
+const FMP_API_KEY = process.env.FMP_API_KEY || '';
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+
 // ─── Screener.in helpers ───────────────────────────────────────────────────
 
 // Simple in-memory cache for Screener data (5-min TTL)
@@ -225,6 +230,50 @@ async function fetchYF(url) {
   }
 }
 
+// ─── FMP helper ────────────────────────────────────────────────────────────
+
+async function fetchFMP(path, apiKey) {
+  const url = `https://financialmodelingprep.com${path}`;
+  const res = await httpsGet(url, {
+    'Accept': 'application/json',
+    'User-Agent': 'FinStation/1.0',
+  }, 15000);
+  if (res.status !== 200) {
+    throw new Error(`FMP returned status ${res.status}`);
+  }
+  try {
+    return JSON.parse(res.data);
+  } catch {
+    throw new Error('FMP returned invalid JSON');
+  }
+}
+
+// ─── Finnhub helper ────────────────────────────────────────────────────────
+
+async function fetchFinnhub(path, apiKey) {
+  const url = `https://finnhub.io${path}`;
+  const res = await httpsGet(url, {
+    'Accept': 'application/json',
+    'X-Finnhub-Token': apiKey,
+    'User-Agent': 'FinStation/1.0',
+  }, 15000);
+  if (res.status !== 200) {
+    throw new Error(`Finnhub returned status ${res.status}`);
+  }
+  try {
+    return JSON.parse(res.data);
+  } catch {
+    throw new Error('Finnhub returned invalid JSON');
+  }
+}
+
+// Convert NSE symbol (RELIANCE.NS) to Finnhub format (NSE:RELIANCE)
+function toFinnhubSymbol(symbol) {
+  if (symbol.includes(':')) return symbol; // already formatted
+  const base = symbol.replace(/\.(NS|BO)$/i, '');
+  return `NSE:${base}`;
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -240,6 +289,8 @@ const server = createServer(async (req, res) => {
   const { pathname, query } = parse(req.url, true);
 
   try {
+    // ─── Yahoo Finance endpoints ─────────────────────────────────────────
+
     if (pathname === '/api/quote') {
       const { symbols } = query;
       if (!symbols) throw new Error('symbols param required');
@@ -271,6 +322,31 @@ const server = createServer(async (req, res) => {
       const data = await fetchYF(url);
       res.writeHead(200);
       res.end(JSON.stringify(data));
+
+    } else if (pathname === '/api/yahoo-news') {
+      // Yahoo Finance news for a symbol
+      const { symbol } = query;
+      if (!symbol) throw new Error('symbol param required');
+      try {
+        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(symbol)}&quotesCount=0&newsCount=10&lang=en-IN&region=IN`;
+        const data = await fetchYF(url);
+        const newsItems = (data?.news || []).map((n, i) => ({
+          id: n.uuid || i,
+          title: n.title || '',
+          source: n.publisher || 'Yahoo Finance',
+          url: n.link || '#',
+          time: n.providerPublishTime
+            ? new Date(n.providerPublishTime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+            : 'Recent',
+          category: 'Markets',
+          thumbnail: n.thumbnail?.resolutions?.[0]?.url || null,
+        }));
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, news: newsItems }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message, news: [] }));
+      }
 
     } else if (pathname === '/api/screener') {
       const { symbol } = query;
@@ -332,9 +408,241 @@ const server = createServer(async (req, res) => {
       res.writeHead(200);
       res.end(JSON.stringify(payload));
 
+    // ─── FMP endpoints ───────────────────────────────────────────────────
+
+    } else if (pathname === '/api/fmp/ratios') {
+      const { symbol, key } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const apiKey = key || FMP_API_KEY;
+      if (!apiKey) throw new Error('NO_FMP_KEY');
+      try {
+        // Convert NSE symbol to FMP format if needed
+        const fmpSymbol = symbol.replace('.NS', '.NSE').replace('.BO', '.BSE');
+        const data = await fetchFMP(`/api/v3/ratios/${encodeURIComponent(fmpSymbol)}?apikey=${encodeURIComponent(apiKey)}&limit=1`, apiKey);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+
+    } else if (pathname === '/api/fmp/profile') {
+      const { symbol, key } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const apiKey = key || FMP_API_KEY;
+      if (!apiKey) throw new Error('NO_FMP_KEY');
+      try {
+        const fmpSymbol = symbol.replace('.NS', '.NSE').replace('.BO', '.BSE');
+        const data = await fetchFMP(`/api/v3/profile/${encodeURIComponent(fmpSymbol)}?apikey=${encodeURIComponent(apiKey)}`, apiKey);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+
+    } else if (pathname === '/api/fmp/financials') {
+      const { symbol, key } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const apiKey = key || FMP_API_KEY;
+      if (!apiKey) throw new Error('NO_FMP_KEY');
+      try {
+        const fmpSymbol = symbol.replace('.NS', '.NSE').replace('.BO', '.BSE');
+        const encoded = encodeURIComponent(fmpSymbol);
+        const [income, balance, cashflow] = await Promise.all([
+          fetchFMP(`/api/v3/income-statement/${encoded}?apikey=${encodeURIComponent(apiKey)}&limit=4`, apiKey),
+          fetchFMP(`/api/v3/balance-sheet-statement/${encoded}?apikey=${encodeURIComponent(apiKey)}&limit=4`, apiKey),
+          fetchFMP(`/api/v3/cash-flow-statement/${encoded}?apikey=${encodeURIComponent(apiKey)}&limit=4`, apiKey),
+        ]);
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, income, balance, cashflow }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+
+    // ─── Finnhub endpoints ───────────────────────────────────────────────
+
+    } else if (pathname === '/api/finnhub/news') {
+      const { symbol, key } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const apiKey = key || FINNHUB_API_KEY;
+      if (!apiKey) throw new Error('NO_FINNHUB_KEY');
+      try {
+        const finnhubSym = toFinnhubSymbol(symbol);
+        const toDate = new Date();
+        const fromDate = new Date(toDate);
+        fromDate.setDate(fromDate.getDate() - 30);
+        const from = fromDate.toISOString().split('T')[0];
+        const to = toDate.toISOString().split('T')[0];
+        const data = await fetchFinnhub(
+          `/api/v1/company-news?symbol=${encodeURIComponent(finnhubSym)}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`,
+          apiKey
+        );
+        const news = (Array.isArray(data) ? data : []).slice(0, 20).map(n => ({
+          id: n.id || Math.random(),
+          title: n.headline || '',
+          source: n.source || 'Finnhub',
+          url: n.url || '#',
+          time: n.datetime
+            ? new Date(n.datetime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+            : 'Recent',
+          category: n.category || 'Markets',
+          summary: n.summary || '',
+        }));
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, news }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message, news: [] }));
+      }
+
+    } else if (pathname === '/api/finnhub/market-news') {
+      const { key } = query;
+      const apiKey = key || FINNHUB_API_KEY;
+      if (!apiKey) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: 'NO_FINNHUB_KEY', news: [] }));
+        return;
+      }
+      try {
+        const data = await fetchFinnhub(
+          `/api/v1/news?category=general&token=${encodeURIComponent(apiKey)}`,
+          apiKey
+        );
+        const news = (Array.isArray(data) ? data : []).slice(0, 20).map(n => ({
+          id: n.id || Math.random(),
+          title: n.headline || '',
+          source: n.source || 'Finnhub',
+          url: n.url || '#',
+          time: n.datetime
+            ? new Date(n.datetime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+            : 'Recent',
+          category: n.category || 'Markets',
+          summary: n.summary || '',
+        }));
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, news }));
+      } catch (e) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: false, error: e.message, news: [] }));
+      }
+
+    // ─── Combined news endpoints ─────────────────────────────────────────
+
+    } else if (pathname === '/api/news/market') {
+      const { finnhubKey } = query;
+      const apiKey = finnhubKey || FINNHUB_API_KEY;
+      let news = [];
+
+      // Try Finnhub first
+      if (apiKey) {
+        try {
+          const data = await fetchFinnhub(
+            `/api/v1/news?category=general&token=${encodeURIComponent(apiKey)}`,
+            apiKey
+          );
+          news = (Array.isArray(data) ? data : []).slice(0, 12).map(n => ({
+            id: n.id || Math.random(),
+            title: n.headline || '',
+            source: n.source || 'Finnhub',
+            url: n.url || '#',
+            time: n.datetime
+              ? new Date(n.datetime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+              : 'Recent',
+            category: n.category || 'Markets',
+          }));
+        } catch (e) {
+          console.error('Finnhub market news error:', e.message);
+        }
+      }
+
+      // Fallback: Yahoo Finance news for NSEI
+      if (news.length === 0) {
+        try {
+          const url = `https://query1.finance.yahoo.com/v1/finance/search?q=%5ENSEI&quotesCount=0&newsCount=10&lang=en-IN&region=IN`;
+          const data = await fetchYF(url);
+          news = (data?.news || []).map((n, i) => ({
+            id: n.uuid || i,
+            title: n.title || '',
+            source: n.publisher || 'Yahoo Finance',
+            url: n.link || '#',
+            time: n.providerPublishTime
+              ? new Date(n.providerPublishTime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+              : 'Recent',
+            category: 'Markets',
+          }));
+        } catch (e) {
+          console.error('Yahoo news fallback error:', e.message);
+        }
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, news }));
+
+    } else if (pathname === '/api/news/company') {
+      const { symbol, company, finnhubKey } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const apiKey = finnhubKey || FINNHUB_API_KEY;
+      let news = [];
+
+      if (apiKey) {
+        try {
+          const finnhubSym = toFinnhubSymbol(symbol);
+          const toDate = new Date();
+          const fromDate = new Date(toDate);
+          fromDate.setDate(fromDate.getDate() - 30);
+          const from = fromDate.toISOString().split('T')[0];
+          const to = toDate.toISOString().split('T')[0];
+          const data = await fetchFinnhub(
+            `/api/v1/company-news?symbol=${encodeURIComponent(finnhubSym)}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`,
+            apiKey
+          );
+          news = (Array.isArray(data) ? data : []).slice(0, 12).map(n => ({
+            id: n.id || Math.random(),
+            title: n.headline || '',
+            source: n.source || 'Finnhub',
+            url: n.url || '#',
+            time: n.datetime
+              ? new Date(n.datetime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+              : 'Recent',
+            category: n.category || 'Company',
+            summary: n.summary || '',
+          }));
+        } catch (e) {
+          console.error('Finnhub company news error:', e.message);
+        }
+      }
+
+      // Fallback: Yahoo Finance search news
+      if (news.length === 0) {
+        try {
+          const q = company || symbol.replace(/\.(NS|BO)$/i, '');
+          const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=0&newsCount=10&lang=en-IN&region=IN`;
+          const data = await fetchYF(url);
+          news = (data?.news || []).map((n, i) => ({
+            id: n.uuid || i,
+            title: n.title || '',
+            source: n.publisher || 'Yahoo Finance',
+            url: n.link || '#',
+            time: n.providerPublishTime
+              ? new Date(n.providerPublishTime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+              : 'Recent',
+            category: 'Company',
+            summary: '',
+          }));
+        } catch (e) {
+          console.error('Yahoo company news fallback error:', e.message);
+        }
+      }
+
+      res.writeHead(200);
+      res.end(JSON.stringify({ success: true, news }));
+
+    // ─── Anthropic research endpoint ─────────────────────────────────────
+
     } else if (pathname === '/api/research') {
       // Proxy Anthropic API calls server-side
-      // Read body
       let body = '';
       await new Promise((resolve) => {
         req.on('data', (chunk) => (body += chunk));
@@ -342,7 +650,7 @@ const server = createServer(async (req, res) => {
       });
       const { prompt, apiKey, model = 'claude-sonnet-4-5', maxTokens = 1600 } = JSON.parse(body || '{}');
       if (!prompt) throw new Error('prompt required');
-      const key = apiKey || process.env.ANTHROPIC_API_KEY || '';
+      const key = apiKey || ANTHROPIC_API_KEY || '';
       if (!key) throw new Error('NO_API_KEY');
 
       const anthropicBody = JSON.stringify({
@@ -352,8 +660,6 @@ const server = createServer(async (req, res) => {
       });
 
       const anthropicRes = await new Promise((resolve, reject) => {
-        const r = require?.('https')?.request || null;
-        // Use https module
         const options = {
           hostname: 'api.anthropic.com',
           path: '/v1/messages',
@@ -398,5 +704,10 @@ server.listen(PORT, () => {
   console.log(`\n✅ FinStation Proxy Server running on http://localhost:${PORT}`);
   console.log('   Market data  → Yahoo Finance (NSE/BSE)');
   console.log('   Fundamentals → Yahoo Finance quoteSummary + Screener.in');
+  console.log('   Ratios       → Financial Modeling Prep (FMP)');
+  console.log('   News         → Finnhub + Yahoo Finance');
   console.log('   15-20 min delayed market data — FREE\n');
+  if (FMP_API_KEY) console.log('   ✓ FMP API key loaded from environment');
+  if (FINNHUB_API_KEY) console.log('   ✓ Finnhub API key loaded from environment');
+  if (ANTHROPIC_API_KEY) console.log('   ✓ Anthropic API key loaded from environment');
 });
