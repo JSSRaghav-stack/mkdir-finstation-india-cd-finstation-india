@@ -5,7 +5,7 @@ import { parse } from 'url';
 const PORT = 3001;
 
 // Read environment variables
-const FMP_API_KEY = process.env.FMP_API_KEY || '';
+const FMP_API_KEY = process.env.FMP_API_KEY || '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 

@@ -1,6 +1,9 @@
 // Yahoo Finance API helper via proxy server
 const API_BASE = 'http://localhost:3001';
 
+// Default FMP API key (hardcoded — no setup needed)
+const DEFAULT_FMP_KEY = '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
+
 export async function fetchQuote(symbols) {
   try {
     const res = await fetch(`${API_BASE}/api/quote?symbols=${encodeURIComponent(symbols)}`, { signal: AbortSignal.timeout(8000) });
@@ -186,10 +189,11 @@ export async function fetchStockDetail(ticker) {
 
 // Fetch 20+ financial ratios from FMP
 export async function fetchFMPRatios(symbol, apiKey) {
-  if (!apiKey) return null;
+  const key = apiKey || localStorage.getItem('fmp_api_key') || DEFAULT_FMP_KEY;
+  if (!key) return null;
   try {
     const res = await fetch(
-      `${API_BASE}/api/fmp/ratios?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(apiKey)}`,
+      `${API_BASE}/api/fmp/ratios?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(key)}`,
       { signal: AbortSignal.timeout(15000) }
     );
     const json = await res.json();
@@ -242,10 +246,11 @@ export async function fetchFMPRatios(symbol, apiKey) {
 
 // Fetch income statement, balance sheet, and cash flow from FMP
 export async function fetchFMPFinancials(symbol, apiKey) {
-  if (!apiKey) return null;
+  const key = apiKey || localStorage.getItem('fmp_api_key') || DEFAULT_FMP_KEY;
+  if (!key) return null;
   try {
     const res = await fetch(
-      `${API_BASE}/api/fmp/financials?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(apiKey)}`,
+      `${API_BASE}/api/fmp/financials?symbol=${encodeURIComponent(symbol)}&key=${encodeURIComponent(key)}`,
       { signal: AbortSignal.timeout(20000) }
     );
     const json = await res.json();

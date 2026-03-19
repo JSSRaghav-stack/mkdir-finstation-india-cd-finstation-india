@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from 'react';
 
+const DEFAULT_KEYS = {
+  fmp_api_key: '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs',
+};
+
 function APIKeyInput({ label, keyName, description, placeholder }) {
   const [value, setValue] = useState('');
   const [saved, setSaved] = useState(false);
   const [show, setShow] = useState(false);
 
-  useEffect(() => { setValue(localStorage.getItem(keyName) || ''); }, [keyName]);
+  useEffect(() => {
+    const stored = localStorage.getItem(keyName) || DEFAULT_KEYS[keyName] || '';
+    // Auto-save the default key to localStorage so it shows as Active
+    if (!localStorage.getItem(keyName) && DEFAULT_KEYS[keyName]) {
+      localStorage.setItem(keyName, DEFAULT_KEYS[keyName]);
+    }
+    setValue(stored);
+  }, [keyName]);
 
   const save = () => {
     localStorage.setItem(keyName, value.trim());
@@ -87,7 +98,7 @@ export default function Settings() {
             { name: 'Yahoo Finance', status: 'Always Active', desc: 'Live quotes, charts, fundamentals — 15-20 min delayed. No key needed.', color: '#22c55e' },
             { name: 'Screener.in', status: 'Always Active', desc: 'TTM financials for Indian stocks (Revenue, EBITDA, EPS). No key needed.', color: '#22c55e' },
             { name: 'Anthropic Claude', status: 'API Key Required', desc: 'AI-powered equity research reports with deep fundamental analysis.', color: '#f59e0b' },
-            { name: 'Financial Modeling Prep', status: 'API Key Required', desc: '200+ financial ratios, income statements, cash flow, balance sheet data.', color: '#f59e0b' },
+            { name: 'Financial Modeling Prep', status: 'Built-in Key', desc: '200+ financial ratios, income statements, cash flow, balance sheet data. Default key included.', color: '#22c55e' },
             { name: 'Finnhub', status: 'API Key Required', desc: 'Real-time company news, market news, sentiment scores.', color: '#f59e0b' },
             { name: 'Indian News RSS', status: 'Always Active', desc: 'Live news from Economic Times, Moneycontrol, NDTV Profit, LiveMint, Business Standard. No key needed.', color: '#22c55e' },
           ].map(s => (
