@@ -97,13 +97,50 @@ export async function fetchFundamentals(symbol) {
   }
 }
 
+// Fetch TTM financials from Screener.in (more accurate for Indian stocks)
+export async function fetchScreenerData(symbol) {
+  try {
+    const cleanSymbol = symbol.replace(/\.(NS|BO)$/i, '');
+    const res = await fetch(
+      `${API_BASE}/api/screener?symbol=${encodeURIComponent(cleanSymbol)}`,
+      { signal: AbortSignal.timeout(25000) },
+    );
+    const json = await res.json();
+    return json?.success ? json.data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchStockDetail(ticker) {
-  const [quotes, fundamentals] = await Promise.all([
+  // Fetch all three sources in parallel for speed
+  const [quotes, fundamentals, screener] = await Promise.all([
     fetchQuote(ticker),
     fetchFundamentals(ticker),
+    fetchScreenerData(ticker),
   ]);
+
   if (!quotes || quotes.length === 0) return null;
   const q = quotes[0];
+
+  // Priority: Screener.in (Indian-specific, TTM) > Yahoo quoteSummary > N/A
+  // Revenue/NetProfit stored as Crore*100 to match display code (÷100 → Cr)
+  const revenue = screener?.revenueCr != null
+    ? Math.round(screener.revenueCr * 100)
+    : (fundamentals?.revenue || 0);
+
+  const netProfit = screener?.netProfitCr != null
+    ? Math.round(screener.netProfitCr * 100)
+    : (fundamentals?.netProfit || 0);
+
+  const ebitdaMargin = screener?.opmPercent != null
+    ? screener.opmPercent                          // OPM% ≈ EBITDA margin
+    : (fundamentals?.ebitdaMargin ?? 'N/A');
+
+  const roe = screener?.roe != null
+    ? screener.roe
+    : (fundamentals?.roe ?? 'N/A');
+
   return {
     name: q.longName || q.shortName || ticker.replace('.NS', ''),
     ticker: q.symbol,
@@ -121,10 +158,11 @@ export async function fetchStockDetail(ticker) {
     evEbitda: fundamentals?.evEbitda ?? 'N/A',
     dividendYield: q.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0,
     beta: q.beta ? Math.round(q.beta * 100) / 100 : 'N/A',
-    revenue: fundamentals?.revenue || 0,
-    netProfit: fundamentals?.netProfit || 0,
-    ebitdaMargin: fundamentals?.ebitdaMargin ?? 'N/A',
-    roe: fundamentals?.roe ?? 'N/A',
+    revenue,
+    netProfit,
+    ebitdaMargin,
+    roe,
+    // D/E and Current Ratio from Yahoo quoteSummary (Screener doesn't expose these in key ratios)
     debtEquity: fundamentals?.debtEquity ?? 'N/A',
     currentRatio: fundamentals?.currentRatio ?? 'N/A',
     dayHigh: q.regularMarketDayHigh || 0,
