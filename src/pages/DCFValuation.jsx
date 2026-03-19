@@ -102,6 +102,24 @@ const DEFAULT_INPUTS = {
   sharesOutstanding: 680,
 };
 
+// Industry-specific DCF parameter defaults
+const SECTOR_DCF_DEFAULTS = {
+  'Banking': { growthRate1to3: 14, growthRate4to5: 10, ebitdaMargin: 30, depreciation: 1, taxRate: 25, capex: 2, changeWC: 0, wacc: 13, terminalGrowthRate: 4.5 },
+  'NBFC': { growthRate1to3: 18, growthRate4to5: 12, ebitdaMargin: 35, depreciation: 1, taxRate: 25, capex: 2, changeWC: 0, wacc: 13.5, terminalGrowthRate: 4.5 },
+  'Information Technology': { growthRate1to3: 12, growthRate4to5: 8, ebitdaMargin: 22, depreciation: 3, taxRate: 25, capex: 4, changeWC: 2, wacc: 11, terminalGrowthRate: 3.5 },
+  'FMCG': { growthRate1to3: 8, growthRate4to5: 6, ebitdaMargin: 24, depreciation: 3, taxRate: 25, capex: 3, changeWC: 2, wacc: 10.5, terminalGrowthRate: 5 },
+  'Pharmaceuticals': { growthRate1to3: 12, growthRate4to5: 9, ebitdaMargin: 24, depreciation: 4, taxRate: 25, capex: 7, changeWC: 3, wacc: 11.5, terminalGrowthRate: 4 },
+  'Automobile': { growthRate1to3: 10, growthRate4to5: 7, ebitdaMargin: 14, depreciation: 5, taxRate: 25, capex: 7, changeWC: 3, wacc: 11, terminalGrowthRate: 4.5 },
+  'Telecom': { growthRate1to3: 10, growthRate4to5: 7, ebitdaMargin: 50, depreciation: 20, taxRate: 25, capex: 24, changeWC: 2, wacc: 12, terminalGrowthRate: 4 },
+  'Utilities': { growthRate1to3: 8, growthRate4to5: 6, ebitdaMargin: 30, depreciation: 8, taxRate: 25, capex: 15, changeWC: 2, wacc: 10, terminalGrowthRate: 4 },
+  'Infrastructure': { growthRate1to3: 12, growthRate4to5: 9, ebitdaMargin: 16, depreciation: 4, taxRate: 25, capex: 8, changeWC: 3, wacc: 11, terminalGrowthRate: 4.5 },
+  'Metals & Mining': { growthRate1to3: 8, growthRate4to5: 5, ebitdaMargin: 16, depreciation: 5, taxRate: 25, capex: 8, changeWC: 4, wacc: 12, terminalGrowthRate: 3 },
+  'Energy & Retail': { growthRate1to3: 10, growthRate4to5: 7, ebitdaMargin: 17, depreciation: 4, taxRate: 25, capex: 8, changeWC: 3, wacc: 11, terminalGrowthRate: 4 },
+  'Oil & Gas': { growthRate1to3: 6, growthRate4to5: 4, ebitdaMargin: 32, depreciation: 6, taxRate: 30, capex: 12, changeWC: 3, wacc: 11, terminalGrowthRate: 3 },
+  'Consumer Discretionary': { growthRate1to3: 15, growthRate4to5: 10, ebitdaMargin: 13, depreciation: 3, taxRate: 25, capex: 4, changeWC: 3, wacc: 11, terminalGrowthRate: 4.5 },
+  'Cement': { growthRate1to3: 12, growthRate4to5: 8, ebitdaMargin: 20, depreciation: 6, taxRate: 25, capex: 10, changeWC: 2, wacc: 11, terminalGrowthRate: 4 },
+};
+
 export default function DCFValuation() {
   const [selectedStock, setSelectedStock] = useState('');
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
@@ -121,17 +139,39 @@ export default function DCFValuation() {
     setFetchingStock(true);
     setDataSource('');
 
+    // Helper to compute inputs from financial data
+    const buildInputs = (data, sector) => {
+      const sectorDefaults = SECTOR_DCF_DEFAULTS[sector] || {};
+      const revenue = data.revenue > 0 ? Math.max(1, Math.round(data.revenue / 100)) : DEFAULT_INPUTS.baseRevenue;
+      const shares = data.marketCapCr > 0 && data.price > 0
+        ? Math.max(1, Math.round(data.marketCapCr / data.price))
+        : DEFAULT_INPUTS.sharesOutstanding;
+      const debtEquityNum = typeof data.debtEquity === 'number' ? data.debtEquity : 0;
+      const netDebt = Math.max(0, Math.round(debtEquityNum * (data.marketCapCr * 0.3 / (data.price || 1))));
+      return {
+        baseRevenue: revenue,
+        sharesOutstanding: shares,
+        netDebt: netDebt > 0 ? netDebt : DEFAULT_INPUTS.netDebt,
+        ebitdaMargin: typeof data.ebitdaMargin === 'number' ? data.ebitdaMargin : (sectorDefaults.ebitdaMargin || DEFAULT_INPUTS.ebitdaMargin),
+        growthRate1to3: sectorDefaults.growthRate1to3 || DEFAULT_INPUTS.growthRate1to3,
+        growthRate4to5: sectorDefaults.growthRate4to5 || DEFAULT_INPUTS.growthRate4to5,
+        depreciation: sectorDefaults.depreciation || DEFAULT_INPUTS.depreciation,
+        taxRate: sectorDefaults.taxRate || DEFAULT_INPUTS.taxRate,
+        capex: sectorDefaults.capex || DEFAULT_INPUTS.capex,
+        changeWC: sectorDefaults.changeWC ?? DEFAULT_INPUTS.changeWC,
+        wacc: sectorDefaults.wacc || DEFAULT_INPUTS.wacc,
+        terminalGrowthRate: sectorDefaults.terminalGrowthRate || DEFAULT_INPUTS.terminalGrowthRate,
+      };
+    };
+
     // Try mock data first
     const mockD = DETAILED_STOCK_DATA[ticker];
+    const stockInfo = STOCK_LIST.find((s) => s.ticker === ticker);
+    const sector = mockD?.sector || stockInfo?.sector || 'Equity';
+
     if (mockD) {
       setCurrentPrice(mockD.price);
-      setInputs((prev) => ({
-        ...prev,
-        baseRevenue: Math.max(1, Math.round(mockD.revenue / 100)),
-        sharesOutstanding: Math.max(1, Math.round(mockD.marketCapCr / mockD.price)),
-        netDebt: Math.max(0, Math.round((mockD.debtEquity || 0) * (mockD.marketCapCr * 0.5 / mockD.price))),
-        ebitdaMargin: typeof mockD.ebitdaMargin === 'number' ? mockD.ebitdaMargin : 22,
-      }));
+      setInputs(buildInputs(mockD, sector));
       setDataSource('mock');
       setFetchingStock(false);
       return;
@@ -142,20 +182,7 @@ export default function DCFValuation() {
       const live = await fetchStockDetail(ticker);
       if (live && live.price > 0) {
         setCurrentPrice(live.price);
-        const sharesEst = live.marketCapCr > 0 && live.price > 0
-          ? Math.round(live.marketCapCr / live.price)
-          : DEFAULT_INPUTS.sharesOutstanding;
-        // revenue stored as Crore * 100, so divide by 100 to get Crore for DCF
-        const baseRevenue = live.revenue > 0
-          ? Math.max(1, Math.round(live.revenue / 100))
-          : DEFAULT_INPUTS.baseRevenue;
-        setInputs((prev) => ({
-          ...prev,
-          sharesOutstanding: Math.max(1, sharesEst),
-          netDebt: DEFAULT_INPUTS.netDebt,
-          baseRevenue,
-          ebitdaMargin: typeof live.ebitdaMargin === 'number' ? live.ebitdaMargin : prev.ebitdaMargin,
-        }));
+        setInputs(buildInputs(live, live.sector || sector));
         setDataSource('live');
       }
     } catch {

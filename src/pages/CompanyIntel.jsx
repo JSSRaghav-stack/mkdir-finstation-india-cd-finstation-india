@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
+import { STOCK_LIST, DETAILED_STOCK_DATA, generateStockNews } from '../data/mockData.js';
 import { formatMarketCap } from '../utils/formatters.js';
 import { fetchStockDetail, fetchChart, searchStocks } from '../utils/api.js';
 
@@ -120,6 +120,11 @@ export default function CompanyIntel() {
       ]);
 
       if (liveDetail && liveDetail.price > 0) {
+        // Attach news: use mock news if available, otherwise generate from sector templates
+        const mockD = DETAILED_STOCK_DATA[stock.ticker];
+        if (!liveDetail.news || liveDetail.news.length === 0) {
+          liveDetail.news = mockD?.news || generateStockNews(liveDetail.name || stock.name, liveDetail.sector || stock.sector);
+        }
         setStockData(liveDetail);
         setIsLive(true);
         if (liveChart && liveChart.length > 0) {
@@ -508,31 +513,50 @@ export default function CompanyIntel() {
             </div>
           )}
 
-          {/* Stock news (mock only) */}
-          {stockData.news && stockData.news.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>
-                Recent News — {stockData.name}
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                {stockData.news.map((n, i) => (
-                  <div
-                    key={i}
-                    className="rounded-xl p-4 card-hover"
-                    style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-                  >
-                    <div className="text-sm font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>
-                      {n.title}
+          {/* Company News */}
+          {(() => {
+            const news = stockData.news && stockData.news.length > 0
+              ? stockData.news
+              : generateStockNews(stockData.name, stockData.sector);
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
+                    Latest News — {stockData.name}
+                  </h3>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#1e1e2e', color: '#64748b' }}>
+                    {news.length} articles
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {news.slice(0, 6).map((n, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl p-4 card-hover"
+                      style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
+                    >
+                      {n.category && (
+                        <span className="text-xs px-1.5 py-0.5 rounded mb-2 inline-block font-medium" style={{
+                          background: 'rgba(59,130,246,0.12)',
+                          color: '#60a5fa',
+                          border: '1px solid rgba(59,130,246,0.2)',
+                        }}>
+                          {n.category}
+                        </span>
+                      )}
+                      <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>
+                        {n.title}
+                      </div>
+                      <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
+                        <span className="font-medium" style={{ color: '#64748b' }}>{n.source}</span>
+                        <span>{n.time}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
-                      <span>{n.source}</span>
-                      <span>{n.time}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="h-6" />
         </div>

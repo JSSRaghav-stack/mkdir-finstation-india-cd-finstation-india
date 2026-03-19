@@ -37,7 +37,31 @@ function parseScreenerData(html) {
     }
   }
 
-  // 2. P&L table — TTM column (last td per row)
+  // 2. Balance sheet data
+  const bsIdx = html.indexOf('id="balance-sheet"');
+  if (bsIdx !== -1) {
+    const bsChunk = html.slice(bsIdx, bsIdx + 20000);
+    const bsTableMatch = bsChunk.match(/<table[^>]*>([\s\S]*?)<\/table>/);
+    if (bsTableMatch) {
+      const bsRows = bsTableMatch[1].match(/<tr[^>]*>([\s\S]*?)<\/tr>/g) || [];
+      for (const row of bsRows) {
+        const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+          .map(m => stripTags(m[1]).replace(/,/g, '').trim());
+        if (cells.length < 2) continue;
+        const label = cells[0].toLowerCase().replace(/\s+/g, '');
+        const val = parseFloat(cells[1]) || null;
+        if (label.includes('total liabilities') || label === 'totalliabilities') result.totalLiabilities = val;
+        else if (label.includes('shareholder') || label === 'equity') result.shareholderEquity = val;
+        else if (label.includes('borrowing')) result.totalBorrowings = val;
+        else if (label.includes('cashandcash') || label.includes('cash&')) result.cashAndEquivalents = val;
+      }
+      if (result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
+        result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
+      }
+    }
+  }
+
+  // 3. P&L table — TTM column (most recent = index 1)
   const plIdx = html.indexOf('id="profit-loss"');
   if (plIdx !== -1) {
     const plChunk = html.slice(plIdx, plIdx + 25000);
@@ -49,13 +73,18 @@ function parseScreenerData(html) {
           .map(m => stripTags(m[1]).replace(/,/g, '').trim());
         if (cells.length < 2) continue;
         const label = cells[0].toLowerCase().replace(/\s+/g, '');
-        const ttm   = cells[cells.length - 1];
-        if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other')) {
+        // Screener shows most recent year FIRST (index 1), not last
+        const ttm   = cells[1];
+        if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other') && !label.includes('growth')) {
           result.revenueCr   = parseFloat(ttm) || null;
-        } else if (label.includes('netprofit')) {
+        } else if (label.includes('netprofit') || label === 'profit') {
           result.netProfitCr = parseFloat(ttm) || null;
         } else if (label.startsWith('opm')) {
           result.opmPercent  = parseFloat(ttm.replace('%', '')) || null;
+        } else if (label === 'eps') {
+          result.eps = parseFloat(ttm) || null;
+        } else if (label.includes('debttoeq') || label.includes('d/e') || label.includes('debteq')) {
+          result.debtEquity = parseFloat(ttm) || null;
         }
       }
     }
@@ -302,6 +331,57 @@ const server = createServer(async (req, res) => {
 
       res.writeHead(200);
       res.end(JSON.stringify(payload));
+
+    } else if (pathname === '/api/research') {
+      // Proxy Anthropic API calls server-side
+      // Read body
+      let body = '';
+      await new Promise((resolve) => {
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', resolve);
+      });
+      const { prompt, apiKey, model = 'claude-sonnet-4-5', maxTokens = 1600 } = JSON.parse(body || '{}');
+      if (!prompt) throw new Error('prompt required');
+      const key = apiKey || process.env.ANTHROPIC_API_KEY || '';
+      if (!key) throw new Error('NO_API_KEY');
+
+      const anthropicBody = JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const anthropicRes = await new Promise((resolve, reject) => {
+        const r = require?.('https')?.request || null;
+        // Use https module
+        const options = {
+          hostname: 'api.anthropic.com',
+          path: '/v1/messages',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'Content-Length': Buffer.byteLength(anthropicBody),
+          },
+        };
+        const request = https.request(options, (response) => {
+          let data = '';
+          response.on('data', (chunk) => (data += chunk));
+          response.on('end', () => resolve({ data, status: response.statusCode }));
+        });
+        request.on('error', reject);
+        request.setTimeout(30000, () => { request.destroy(); reject(new Error('Timeout')); });
+        request.write(anthropicBody);
+        request.end();
+      });
+
+      if (anthropicRes.status !== 200) {
+        const errData = JSON.parse(anthropicRes.data || '{}');
+        throw new Error(errData?.error?.message || `API error ${anthropicRes.status}`);
+      }
+      res.writeHead(200);
+      res.end(anthropicRes.data);
 
     } else {
       res.writeHead(404);

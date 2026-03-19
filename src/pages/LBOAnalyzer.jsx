@@ -79,7 +79,15 @@ const DEFAULT_INPUTS = {
   revenueCagr: 12,
   exitEbitdaMargin: 24,
   exitMultiple: 11,
-  mgmtFee: 2,
+  mgmtFee: 1.5,
+  fcfSweep: true,
+  taxRate: 25,
+  capexPct: 4,
+  wcChangePct: 2,
+  mandatoryAmortPct: 10,
+  exitType: 'Strategic',
+  carryPct: 20,
+  hurdleRate: 8,
 };
 
 function ReturnsBadge({ irr }) {
@@ -329,10 +337,107 @@ export default function LBOAnalyzer() {
         <Slider
           label="Management Fee % of EBITDA"
           value={inputs.mgmtFee}
-          min={1} max={3} step={0.25}
+          min={0.5} max={3} step={0.25}
           onChange={set('mgmtFee')}
           suffix="%"
           tooltip="Annual management fee charged by PE firm as % of EBITDA"
+        />
+
+        <div className="text-xs font-semibold mb-3 mt-2" style={{ color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Operations
+        </div>
+
+        <Slider
+          label="Effective Tax Rate (%)"
+          value={inputs.taxRate}
+          min={15} max={35} step={1}
+          onChange={set('taxRate')}
+          suffix="%"
+          tooltip="Corporate income tax rate applied to taxable income"
+        />
+
+        <Slider
+          label="CapEx % of Revenue"
+          value={inputs.capexPct}
+          min={1} max={15} step={0.5}
+          onChange={set('capexPct')}
+          suffix="%"
+          tooltip="Annual capital expenditure as % of revenue"
+        />
+
+        <Slider
+          label="Mandatory Amort % of Debt"
+          value={inputs.mandatoryAmortPct}
+          min={5} max={25} step={1}
+          onChange={set('mandatoryAmortPct')}
+          suffix="%"
+          tooltip="Annual mandatory debt repayment as % of initial debt"
+        />
+
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs" style={{ color: '#64748b' }}>
+              <Tooltip2 label="Excess FCF after mandatory amort sweeps additional debt — industry standard in leveraged buyouts">
+                FCF Cash Sweep
+              </Tooltip2>
+            </span>
+            <button
+              onClick={() => set('fcfSweep')(!inputs.fcfSweep)}
+              className="relative inline-flex items-center h-5 rounded-full w-9 transition-colors"
+              style={{ background: inputs.fcfSweep ? '#8b5cf6' : '#1e1e2e' }}
+            >
+              <span
+                className="inline-block w-3.5 h-3.5 transform rounded-full bg-white transition-transform"
+                style={{ transform: `translateX(${inputs.fcfSweep ? '18px' : '2px'})` }}
+              />
+            </button>
+          </div>
+        </div>
+
+        <div className="text-xs font-semibold mb-3 mt-2" style={{ color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Exit & Returns
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-xs mb-1" style={{ color: '#64748b' }}>Exit Type</label>
+          <div className="flex gap-1">
+            {['Strategic', 'IPO', 'Secondary'].map((t) => (
+              <button
+                key={t}
+                onClick={() => set('exitType')(t)}
+                className="flex-1 py-1.5 rounded text-xs font-medium transition-all"
+                style={{
+                  background: inputs.exitType === t ? '#8b5cf6' : '#12121a',
+                  color: inputs.exitType === t ? '#fff' : '#64748b',
+                  border: `1px solid ${inputs.exitType === t ? '#8b5cf6' : '#1e1e2e'}`,
+                  fontSize: '10px',
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="text-xs mt-1" style={{ color: '#334155' }}>
+            {inputs.exitType === 'IPO' ? 'IPO: +10% exit multiple premium' : inputs.exitType === 'Secondary' ? 'Secondary: -5% exit multiple discount' : 'Strategic: par exit multiple'}
+          </div>
+        </div>
+
+        <Slider
+          label="PE Carry (%)"
+          value={inputs.carryPct}
+          min={10} max={30} step={5}
+          onChange={set('carryPct')}
+          suffix="%"
+          tooltip="PE fund's carried interest — % of profits above hurdle rate"
+        />
+
+        <Slider
+          label="Hurdle Rate (%)"
+          value={inputs.hurdleRate}
+          min={6} max={12} step={0.5}
+          onChange={set('hurdleRate')}
+          suffix="%"
+          tooltip="Preferred return threshold before carry kicks in (typically 8%)"
         />
       </div>
 
@@ -393,15 +498,19 @@ export default function LBOAnalyzer() {
             <div className="grid grid-cols-4 gap-3 mb-5">
               {[
                 { label: 'Entry EV', value: formatCroreCompact(result.entryEV), tooltip: 'Enterprise Value at acquisition' },
-                { label: 'Exit EV', value: formatCroreCompact(result.exitEV), tooltip: 'Enterprise Value at exit' },
-                { label: 'Entry Debt', value: formatCroreCompact(result.entryDebt), tooltip: 'Total acquisition debt' },
-                { label: 'Exit Debt', value: formatCroreCompact(result.exitDebt), tooltip: 'Remaining debt at exit after amortization' },
+                { label: 'Exit EV', value: formatCroreCompact(result.exitEV), tooltip: `Enterprise Value at exit (${inputs.exitType})` },
+                { label: 'Entry Debt', value: formatCroreCompact(result.entryDebt), tooltip: 'Total acquisition debt (Senior + Sub)' },
+                { label: 'Exit Debt', value: formatCroreCompact(result.exitDebt), tooltip: 'Remaining debt at exit after amortization + FCF sweep' },
+                { label: 'Equity In', value: `${result.equityPct}% / ${formatCroreCompact(result.entryEquity)}`, tooltip: 'Equity contribution as % of Entry EV' },
+                { label: 'LP Proceeds', value: formatCroreCompact(result.lpProceeds), tooltip: 'LP proceeds after PE carried interest' },
+                { label: 'PE Carry', value: formatCroreCompact(result.carry), tooltip: `${inputs.carryPct}% carry on profits above ${inputs.hurdleRate}% hurdle` },
+                { label: 'Debt Repaid', value: formatCroreCompact(result.cumulativeDebtRepaid), tooltip: 'Total debt repaid (mandatory + FCF sweep) over holding period' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl p-3" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                   <div className="text-xs mb-1" style={{ color: '#64748b' }}>
                     <Tooltip2 label={item.tooltip}>{item.label}</Tooltip2>
                   </div>
-                  <div className="text-lg font-bold" style={{ color: '#f1f5f9' }}>{item.value}</div>
+                  <div className="text-sm font-bold" style={{ color: '#f1f5f9' }}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -417,7 +526,7 @@ export default function LBOAnalyzer() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ background: '#0d0d15', borderBottom: '1px solid #1e1e2e' }}>
-                      {['Year', 'Revenue', 'EBITDA', 'Mgmt Fee', 'Interest', 'Debt Repaid', 'Debt Balance'].map((h) => (
+                      {['Year', 'Revenue', 'EBITDA', 'Interest', 'Tax', 'FCF', 'Mand. Amort', 'FCF Sweep', 'Debt Balance', 'DSCR'].map((h) => (
                         <th key={h} className="px-3 py-2 text-right font-medium first:text-left" style={{ color: '#64748b' }}>
                           {h}
                         </th>
@@ -435,16 +544,60 @@ export default function LBOAnalyzer() {
                         <td className="px-3 py-2 text-left font-semibold" style={{ color: '#60a5fa' }}>Year {row.year}</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.revenue.toLocaleString('en-IN')}</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.ebitda.toLocaleString('en-IN')}</td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#f59e0b' }}>({row.mgmtFee.toLocaleString('en-IN')})</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#ef4444' }}>({row.interest.toLocaleString('en-IN')})</td>
-                        <td className="px-3 py-2 text-right" style={{ color: '#22c55e' }}>{row.debtRepaid.toLocaleString('en-IN')}</td>
-                        <td className="px-3 py-2 text-right font-semibold" style={{ color: '#a78bfa' }}>{row.debtBalance.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#f59e0b' }}>({row.tax.toLocaleString('en-IN')})</td>
+                        <td className="px-3 py-2 text-right font-medium" style={{ color: row.fcf >= 0 ? '#22c55e' : '#ef4444' }}>{row.fcf.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#94a3b8' }}>{(row.debtRepaid - row.fcfSweep).toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#a78bfa' }}>{row.fcfSweep > 0 ? row.fcfSweep.toLocaleString('en-IN') : '—'}</td>
+                        <td className="px-3 py-2 text-right font-semibold" style={{ color: '#8b5cf6' }}>{row.debtBalance.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right font-semibold" style={{ color: row.dscr >= 1.5 ? '#22c55e' : row.dscr >= 1.0 ? '#f59e0b' : '#ef4444' }}>
+                          {row.dscr != null ? `${row.dscr}x` : '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {/* Exit Multiple Sensitivity */}
+            {result.exitSensitivity && (
+              <div className="rounded-xl overflow-hidden mb-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
+                  <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
+                    📊 Exit Multiple Sensitivity
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr style={{ background: '#0d0d15', borderBottom: '1px solid #1e1e2e' }}>
+                        <th className="px-4 py-2 text-left font-medium" style={{ color: '#64748b' }}>Exit EV/EBITDA</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>Exit Equity</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>IRR</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>MoM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.exitSensitivity.map((row, i) => {
+                        const isBase = i === 2;
+                        const irrColor = row.irr >= 25 ? '#22c55e' : row.irr >= 15 ? '#f59e0b' : '#ef4444';
+                        return (
+                          <tr key={i} style={{ background: isBase ? 'rgba(139,92,246,0.08)' : 'transparent', borderBottom: '1px solid #1a1a2a' }}>
+                            <td className="px-4 py-2 font-semibold" style={{ color: isBase ? '#a78bfa' : '#94a3b8' }}>
+                              {row.multiple.toFixed(1)}x {isBase ? '(Base)' : ''}
+                            </td>
+                            <td className="px-4 py-2 text-right" style={{ color: '#e2e8f0' }}>{formatCroreCompact(row.exitEquity)}</td>
+                            <td className="px-4 py-2 text-right font-bold" style={{ color: irrColor }}>{row.irr.toFixed(1)}%</td>
+                            <td className="px-4 py-2 text-right font-semibold" style={{ color: row.mom >= 2 ? '#60a5fa' : '#94a3b8' }}>{row.mom.toFixed(2)}x</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Waterfall chart */}
             <div className="rounded-xl p-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>

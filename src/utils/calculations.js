@@ -90,7 +90,7 @@ export function calculateSensitivity(inputs, currentPrice) {
   );
 }
 
-// LBO Calculation
+// LBO Calculation — Industry Standard with FCF Sweep
 export function calculateLBO(inputs) {
   const {
     entryRevenue,
@@ -103,6 +103,14 @@ export function calculateLBO(inputs) {
     exitEbitdaMargin,
     exitMultiple,
     mgmtFee,
+    fcfSweep = true,          // FCF sweep option (default ON)
+    taxRate = 25,              // Corporate tax rate %
+    capexPct = 4,              // Capex as % of revenue
+    wcChangePct = 2,           // Working capital change as % of revenue
+    mandatoryAmortPct = 10,   // Mandatory amortization as % of initial debt
+    exitType = 'Strategic',    // Exit type: Strategic, IPO, Secondary
+    carryPct = 20,             // PE carry %
+    hurdleRate = 8,            // Preferred return hurdle %
   } = inputs;
 
   const entryEbitda = entryRevenue * (entryEbitdaMargin / 100);
@@ -110,18 +118,55 @@ export function calculateLBO(inputs) {
   const entryDebt = entryEbitda * debtEbitda;
   const entryEquity = entryEV - entryDebt;
 
-  // Debt schedule
-  const mandatoryAmort = entryDebt * 0.10; // 10% per year
+  // Equity split: Senior Debt (60%), Sub/Mezz (40%)
+  const seniorDebt = entryDebt * 0.7;
+  const subDebt = entryDebt * 0.3;
+  const equityPct = Math.round((entryEquity / entryEV) * 100);
+
+  const mandatoryAmort = entryDebt * (mandatoryAmortPct / 100);
   const schedule = [];
   let debtBalance = entryDebt;
+  let cumulativeDebtRepaid = 0;
+  let cumulativeInterest = 0;
+  let cumulativeFcf = 0;
 
   for (let yr = 1; yr <= holdingPeriod; yr++) {
     const revenue = entryRevenue * Math.pow(1 + revenueCagr / 100, yr);
-    const ebitda = revenue * (exitEbitdaMargin / 100);
+    // EBITDA margin interpolates between entry and exit
+    const marginProgress = yr / holdingPeriod;
+    const ebitdaMargin = entryEbitdaMargin + (exitEbitdaMargin - entryEbitdaMargin) * marginProgress;
+    const ebitda = revenue * (ebitdaMargin / 100);
     const mgmtFeeAmt = ebitda * (mgmtFee / 100);
     const interest = debtBalance * (interestRate / 100);
-    const debtRepaid = Math.min(mandatoryAmort, debtBalance);
-    debtBalance = Math.max(0, debtBalance - debtRepaid);
+    const ebt = ebitda - mgmtFeeAmt - interest;
+    const tax = Math.max(0, ebt * (taxRate / 100));
+    const netIncome = ebt - tax;
+    const capex = revenue * (capexPct / 100);
+    const wcChange = revenue * (wcChangePct / 100);
+    // FCF = EBITDA - Interest - Tax - Capex - ΔWC - Mgmt Fee
+    const fcf = ebitda - interest - tax - capex - wcChange - mgmtFeeAmt;
+
+    // Mandatory amortization first
+    const mandRepaid = Math.min(mandatoryAmort, debtBalance);
+    let totalRepaid = mandRepaid;
+
+    // FCF Sweep: excess cash (after mandatory amort) pays down debt
+    let fcfSweepAmt = 0;
+    if (fcfSweep && fcf > mandRepaid) {
+      fcfSweepAmt = Math.min(fcf - mandRepaid, debtBalance - mandRepaid);
+      fcfSweepAmt = Math.max(0, fcfSweepAmt);
+      totalRepaid += fcfSweepAmt;
+    }
+
+    debtBalance = Math.max(0, debtBalance - totalRepaid);
+    cumulativeDebtRepaid += totalRepaid;
+    cumulativeInterest += interest;
+    cumulativeFcf += Math.max(0, fcf);
+
+    // DSCR = EBITDA / (Interest + Mandatory Amort)
+    const dscr = interest + mandatoryAmort > 0
+      ? Math.round((ebitda / (interest + mandatoryAmort)) * 100) / 100
+      : null;
 
     schedule.push({
       year: yr,
@@ -129,16 +174,33 @@ export function calculateLBO(inputs) {
       ebitda: Math.round(ebitda),
       mgmtFee: Math.round(mgmtFeeAmt),
       interest: Math.round(interest),
-      debtRepaid: Math.round(debtRepaid),
+      tax: Math.round(tax),
+      fcf: Math.round(Math.max(0, fcf)),
+      debtRepaid: Math.round(totalRepaid),
+      fcfSweep: Math.round(fcfSweepAmt),
       debtBalance: Math.round(debtBalance),
+      dscr,
     });
   }
 
   const exitRevenue = entryRevenue * Math.pow(1 + revenueCagr / 100, holdingPeriod);
   const exitEbitda = exitRevenue * (exitEbitdaMargin / 100);
-  const exitEV = exitEbitda * exitMultiple;
+
+  // Exit multiple adjustment by type
+  const exitMultipleAdj = exitType === 'IPO' ? exitMultiple * 1.1
+    : exitType === 'Secondary' ? exitMultiple * 0.95
+    : exitMultiple;
+
+  const exitEV = exitEbitda * exitMultipleAdj;
   const exitDebt = debtBalance;
   const exitEquity = Math.max(0, exitEV - exitDebt);
+
+  // Carried interest calculation
+  const totalReturn = exitEquity - entryEquity;
+  const hurdleReturn = entryEquity * Math.pow(1 + hurdleRate / 100, holdingPeriod) - entryEquity;
+  const carryBase = Math.max(0, totalReturn - hurdleReturn);
+  const carry = carryBase * (carryPct / 100);
+  const lpProceeds = exitEquity - carry;
 
   // IRR calculation using Newton-Raphson
   const cashflows = [-entryEquity];
@@ -148,16 +210,40 @@ export function calculateLBO(inputs) {
   const irr = calculateIRR(cashflows);
   const mom = entryEquity > 0 ? exitEquity / entryEquity : 0;
 
+  // Exit multiple sensitivity (±2x)
+  const exitSensitivity = [-2, -1, 0, 1, 2].map((delta) => {
+    const adjMultiple = exitMultipleAdj + delta;
+    const adjEV = exitEbitda * adjMultiple;
+    const adjEquity = Math.max(0, adjEV - exitDebt);
+    const adjCfs = [-entryEquity, ...Array(holdingPeriod - 1).fill(0), adjEquity];
+    const adjIrr = calculateIRR(adjCfs);
+    return {
+      multiple: adjMultiple,
+      exitEquity: Math.round(adjEquity),
+      irr: Math.round(adjIrr * 10000) / 100,
+      mom: entryEquity > 0 ? Math.round((adjEquity / entryEquity) * 100) / 100 : 0,
+    };
+  });
+
   return {
     entryEV: Math.round(entryEV),
     entryDebt: Math.round(entryDebt),
     entryEquity: Math.round(entryEquity),
+    seniorDebt: Math.round(seniorDebt),
+    subDebt: Math.round(subDebt),
+    equityPct,
     exitEV: Math.round(exitEV),
     exitDebt: Math.round(exitDebt),
     exitEquity: Math.round(exitEquity),
     irr: Math.round(irr * 10000) / 100,
     mom: Math.round(mom * 100) / 100,
+    carry: Math.round(carry),
+    lpProceeds: Math.round(lpProceeds),
+    cumulativeDebtRepaid: Math.round(cumulativeDebtRepaid),
+    cumulativeInterest: Math.round(cumulativeInterest),
+    cumulativeFcf: Math.round(cumulativeFcf),
     schedule,
+    exitSensitivity,
   };
 }
 

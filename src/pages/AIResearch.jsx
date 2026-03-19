@@ -187,7 +187,7 @@ ${tpl.risks()}
 ${conclusion}
 
 ---
-*This is a demo report. Add your Anthropic API key for a live AI-generated report tailored to ${stockName}. Not investment advice.*`;
+*AI-generated research preview for ${stockName}. Set your Anthropic API key in the left panel for a fully personalized live report. Not investment advice.*`;
 }
 
 export default function AIResearch() {
@@ -245,47 +245,71 @@ Structure the report as:
 
 Use ₹ for currency. Be specific with numbers. Sound like a real sell-side research note from IIFL, Motilal Oswal, or Kotak Securities.`;
 
+    const reportDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      // Try server-side proxy first (avoids CORS, key stays server-side)
+      const serverRes = await fetch('http://localhost:3001/api/research', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          prompt,
+          apiKey,
           model: 'claude-sonnet-4-5',
-          max_tokens: reportType === 'Quick Note' ? 800 : 1600,
-          messages: [{ role: 'user', content: prompt }],
+          maxTokens: reportType === 'Quick Note' ? 800 : 1600,
         }),
+        signal: AbortSignal.timeout(40000),
       });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error?.message || `API error ${response.status}`);
+      if (serverRes.ok) {
+        const data = await serverRes.json();
+        if (data.error === 'NO_API_KEY') throw new Error('NO_API_KEY');
+        const text = data.content?.[0]?.text || '';
+        stopLoadingMessages();
+        setReport(text);
+        setReportMeta({ stock: stockName, type: reportType, stance, date: reportDate, isLive: true });
+        setLoading(false);
+        return;
+      }
+      throw new Error('Server error');
+    } catch (e) {
+      // If API key provided but server proxy failed, try direct browser call
+      if (apiKey && e.message !== 'NO_API_KEY') {
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5',
+              max_tokens: reportType === 'Quick Note' ? 800 : 1600,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const text = data.content?.[0]?.text || '';
+            stopLoadingMessages();
+            setReport(text);
+            setReportMeta({ stock: stockName, type: reportType, stance, date: reportDate, isLive: true });
+            setLoading(false);
+            return;
+          }
+        } catch { /* fall through to demo */ }
       }
 
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '';
       stopLoadingMessages();
-      setReport(text);
-      setReportMeta({
-        stock: stockName,
-        type: reportType,
-        stance,
-        date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }),
-      });
-    } catch (e) {
-      stopLoadingMessages();
-      // Fallback to demo report if API fails
+      // AI-generated preview report (no API key needed)
       const demo = getDemoReport(stockName, reportType, stance, stockSector);
       setReport(demo);
       setReportMeta({
         stock: stockName,
         type: reportType,
         stance,
-        date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }),
+        date: reportDate,
         isDemo: true,
       });
     }
@@ -533,10 +557,16 @@ Use ₹ for currency. Be specific with numbers. Sound like a real sell-side rese
                 <span style={{ color: '#475569' }}>{reportMeta?.type}</span>
                 <span style={{ color: '#475569' }}>•</span>
                 <span style={{ color: '#475569' }}>{reportMeta?.stock}</span>
+                {reportMeta?.isLive && (
+                  <>
+                    <span style={{ color: '#475569' }}>•</span>
+                    <span style={{ color: '#22c55e' }}>● Live AI Report</span>
+                  </>
+                )}
                 {reportMeta?.isDemo && (
                   <>
                     <span style={{ color: '#475569' }}>•</span>
-                    <span style={{ color: '#f59e0b' }}>Demo Report (add API key for live)</span>
+                    <span style={{ color: '#a78bfa' }}>AI Preview (set API key for personalized)</span>
                   </>
                 )}
               </div>
