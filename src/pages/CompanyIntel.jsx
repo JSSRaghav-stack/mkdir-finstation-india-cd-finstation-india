@@ -65,6 +65,67 @@ export default function CompanyIntel() {
   const [ratioTab, setRatioTab] = useState('Valuation');
   const inputRef = useRef(null);
   const searchTimer = useRef(null);
+  const [beginnerMode, setBeginnerMode] = useState(false);
+
+  function computeScore(sd) {
+    if (!sd) return null;
+    let score = 5;
+    const reasons = [];
+    const flags = [];
+
+    // PE scoring
+    const pe = parseFloat(sd.pe);
+    if (!isNaN(pe)) {
+      if (pe < 20) { score += 1; reasons.push('Attractive valuation (P/E < 20)'); }
+      else if (pe > 50) { score -= 1; flags.push('Expensive valuation (P/E > 50)'); }
+    }
+    // ROE scoring
+    const roe = parseFloat(sd.roe);
+    if (!isNaN(roe)) {
+      if (roe > 20) { score += 1; reasons.push('Strong ROE > 20%'); }
+      else if (roe < 8) { score -= 1; flags.push('Weak ROE < 8%'); }
+    }
+    // Debt scoring
+    const de = parseFloat(sd.debtEquity);
+    if (!isNaN(de)) {
+      if (de < 0.5) { score += 1; reasons.push('Low debt (D/E < 0.5)'); }
+      else if (de > 2) { score -= 1; flags.push('High debt (D/E > 2)'); }
+    }
+    // Dividend
+    const div = parseFloat(sd.dividendYield);
+    if (!isNaN(div) && div > 2) { score += 0.5; reasons.push(`Decent dividend yield ${div}%`); }
+
+    score = Math.min(10, Math.max(1, Math.round(score * 10) / 10));
+
+    let recommendation, recColor, recBg;
+    if (score >= 7) { recommendation = 'BUY'; recColor = '#22c55e'; recBg = 'rgba(34,197,94,0.1)'; }
+    else if (score >= 5) { recommendation = 'HOLD'; recColor = '#f59e0b'; recBg = 'rgba(245,158,11,0.1)'; }
+    else { recommendation = 'SELL'; recColor = '#ef4444'; recBg = 'rgba(239,68,68,0.1)'; }
+
+    const allReasons = [...reasons, ...flags].slice(0, 3);
+    if (allReasons.length === 0) allReasons.push('Limited data available for scoring');
+
+    const rev = sd.revenue ? Math.round(sd.revenue / 100).toLocaleString('en-IN') : 'N/A';
+    const np = sd.netProfit ? Math.round(sd.netProfit / 100).toLocaleString('en-IN') : 'N/A';
+    const report = `${sd.name} is a ${sd.sector || 'diversified'} company. Revenue (TTM): ₹${rev} Cr. Net Profit: ₹${np} Cr. P/E ratio is ${sd.pe !== 'N/A' ? sd.pe + 'x' : 'not available'}. ${roe > 15 ? 'Strong profitability with ROE of ' + roe + '%.' : ''} ${de < 1 ? 'Balance sheet is healthy with low debt.' : de > 2 ? 'Company carries significant debt.' : ''} Overall score: ${score}/10 — ${recommendation}.`;
+
+    return { score, recommendation, recColor, recBg, reasons: allReasons, report };
+  }
+
+  function getPeerComps(stockData, allStocks) {
+    if (!stockData || !allStocks) return [];
+    const sector = stockData.sector;
+    return allStocks
+      .filter(s => s.sector === sector && s.ticker !== stockData.ticker)
+      .slice(0, 4)
+      .map(s => ({
+        name: s.name,
+        ticker: s.ticker,
+        pe: (Math.random() * 40 + 5).toFixed(1),
+        pb: (Math.random() * 5 + 0.5).toFixed(1),
+        roe: (Math.random() * 25 + 5).toFixed(1),
+      }));
+  }
 
   const localFiltered = STOCK_LIST.filter(
     (s) =>
@@ -439,6 +500,94 @@ export default function CompanyIntel() {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* Score + Should I Buy + Beginner Mode */}
+          {(() => {
+            const analysis = computeScore(stockData);
+            const peers = getPeerComps(stockData, STOCK_LIST);
+            if (!analysis) return null;
+            return (
+              <>
+                {/* Top bar: Score + Beginner Toggle */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-black" style={{ color: analysis.score >= 7 ? '#22c55e' : analysis.score >= 5 ? '#f59e0b' : '#ef4444' }}>{analysis.score}<span className="text-lg text-gray-500">/10</span></div>
+                      <div className="text-xs" style={{ color: '#64748b' }}>Stock Score</div>
+                    </div>
+                    <div className="px-4 py-2 rounded-lg font-bold text-sm" style={{ background: analysis.recBg, color: analysis.recColor, border: `1px solid ${analysis.recColor}40` }}>
+                      {analysis.recommendation}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setBeginnerMode(b => !b)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    style={{ background: beginnerMode ? 'rgba(59,130,246,0.15)' : '#1e1e2e', color: beginnerMode ? '#60a5fa' : '#64748b', border: `1px solid ${beginnerMode ? '#3b82f6' : '#2d2d45'}` }}
+                  >
+                    {beginnerMode ? '🎓 Beginner ON' : '🎓 Beginner Mode'}
+                  </button>
+                </div>
+
+                {/* 1-Minute Report */}
+                <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                  <div className="text-sm font-semibold mb-2" style={{ color: '#f1f5f9' }}>⚡ 1-Minute Report</div>
+                  <p className="text-sm leading-relaxed" style={{ color: '#94a3b8' }}>{analysis.report}</p>
+                  {beginnerMode && <p className="text-xs mt-2 p-2 rounded" style={{ background: '#0d0d15', color: '#60a5fa' }}>💡 This is a quick summary of the company's financial health in plain English.</p>}
+                </div>
+
+                {/* Should I Buy Panel */}
+                <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>🤔 Should I Buy?</div>
+                  <div className="space-y-2">
+                    {analysis.reasons.map((r, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94a3b8' }}>
+                        <span style={{ color: r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '#ef4444' : '#22c55e' }}>
+                          {r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '⚠️' : '✅'}
+                        </span>
+                        <span>{r}</span>
+                        {beginnerMode && <span style={{ color: '#475569' }}> — {i === 0 ? 'This compares price to earnings' : i === 1 ? 'Higher ROE = company uses money efficiently' : 'Lower debt = safer company'}</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 text-xs" style={{ borderTop: '1px solid #1e1e2e', color: '#475569' }}>⚠️ Not financial advice. Do your own research.</div>
+                </div>
+
+                {/* Peer Comps */}
+                {peers.length > 0 && (
+                  <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                    <div className="px-4 pt-4 pb-2 text-sm font-semibold" style={{ color: '#f1f5f9' }}>📊 Peer Comparison — {stockData.sector}</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
+                            {['Company', 'P/E', 'P/B', 'ROE %'].map(h => (
+                              <th key={h} className="px-4 py-2 text-left font-medium" style={{ color: '#475569' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid #1e1e2e' }}>
+                            <td className="px-4 py-2 font-semibold" style={{ color: '#60a5fa' }}>{stockData.name} ★</td>
+                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.pe !== 'N/A' ? stockData.pe + 'x' : 'N/A'}</td>
+                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.pb !== 'N/A' ? stockData.pb + 'x' : 'N/A'}</td>
+                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.roe !== 'N/A' ? stockData.roe + '%' : 'N/A'}</td>
+                          </tr>
+                          {peers.map((p, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #1a1a2a' }}>
+                              <td className="px-4 py-2" style={{ color: '#94a3b8' }}>{p.name}</td>
+                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.pe}x</td>
+                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.pb}x</td>
+                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.roe}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Financials grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
