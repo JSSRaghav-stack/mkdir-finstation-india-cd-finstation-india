@@ -652,6 +652,131 @@ export const STOCK_LIST = [
   { ticker: 'MASFIN.NS', name: 'MAS Financial Services', sector: 'NBFC' },
   { ticker: 'MANAPPURAM.NS', name: 'Manappuram Finance', sector: 'NBFC' },
 
+  // Pharmaceuticals/Healthcare - New additions
+  { ticker: 'NATCOPHARM.NS', name: 'Natco Pharma', sector: 'Pharmaceuticals' },
+  { ticker: 'NOVARTISIND.NS', name: 'Novartis India', sector: 'Pharmaceuticals' },
+  { ticker: 'CAPLIPOINT.NS', name: 'Caplin Point Laboratories', sector: 'Pharmaceuticals' },
+  { ticker: 'JUBLPHARMA.NS', name: 'Jubilant Pharmova', sector: 'Pharmaceuticals' },
+  { ticker: 'ERIS.NS', name: 'Eris Lifesciences', sector: 'Pharmaceuticals' },
+  { ticker: 'SEQUENT.NS', name: 'Sequent Scientific', sector: 'Pharmaceuticals' },
+  { ticker: 'MARKSANS.NS', name: 'Marksans Pharma', sector: 'Pharmaceuticals' },
+  { ticker: 'NEULANDLAB.NS', name: 'Neuland Laboratories', sector: 'Pharmaceuticals' },
+  { ticker: 'SMSPHARMA.NS', name: 'SMS Pharmaceuticals', sector: 'Pharmaceuticals' },
+  { ticker: 'LAURUS.NS', name: 'Laurus Labs', sector: 'Pharmaceuticals' },
+
+  // IT/Tech - New additions
+  { ticker: 'SASKEN.NS', name: 'Sasken Technologies', sector: 'IT Services' },
+  { ticker: 'BSOFT.NS', name: 'Birlasoft', sector: 'IT Services' },
+  { ticker: 'SUBEX.NS', name: 'Subex Limited', sector: 'IT Services' },
+  { ticker: 'RSYSTEMS.NS', name: 'R Systems International', sector: 'IT Services' },
+
+  // Banking/Finance - New additions
+  { ticker: 'BANKINDIA.NS', name: 'Bank of India', sector: 'Banking' },
+  { ticker: 'UCOBK.NS', name: 'UCO Bank', sector: 'Banking' },
+  { ticker: 'ESAFSFB.NS', name: 'ESAF Small Finance Bank', sector: 'Banking' },
+  { ticker: 'UTKARSHBNK.NS', name: 'Utkarsh Small Finance Bank', sector: 'Banking' },
+  { ticker: 'KARURVSYA.NS', name: 'Karur Vysya Bank', sector: 'Banking' },
+  { ticker: 'CITYUNIONB.NS', name: 'City Union Bank', sector: 'Banking' },
+  { ticker: 'TMB.NS', name: 'Tamilnad Mercantile Bank', sector: 'Banking' },
+  { ticker: 'SOUTHBANK.NS', name: 'South Indian Bank', sector: 'Banking' },
+
+  // Auto/EV - New additions
+  { ticker: 'SMLISUZU.NS', name: 'SML Isuzu', sector: 'Automobiles' },
+  { ticker: 'VSTTILLERS.NS', name: 'VST Tillers Tractors', sector: 'Automobiles' },
+  { ticker: 'SANDHAR.NS', name: 'Sandhar Technologies', sector: 'Auto Components' },
+  { ticker: 'SUBROS.NS', name: 'Subros Limited', sector: 'Auto Components' },
+  { ticker: 'UCAL.NS', name: 'UCAL Fuel Systems', sector: 'Auto Components' },
+  { ticker: 'SUNDRMC.NS', name: 'Sundram Fasteners', sector: 'Auto Components' },
+  { ticker: 'JTEKTINDIA.NS', name: 'JTEKT India', sector: 'Auto Components' },
+  { ticker: 'RAMKRISHNA.NS', name: 'Ramkrishna Forgings', sector: 'Auto Components' },
+  { ticker: 'WABCO.NS', name: 'WABCO India', sector: 'Auto Components' },
+  { ticker: 'GREENPANEL.NS', name: 'Greenpanel Industries', sector: 'Building Materials' },
+
+  // FMCG/Consumer - New additions
+  { ticker: 'BAJAJCON.NS', name: 'Bajaj Consumer Care', sector: 'FMCG' },
+  { ticker: 'UNITDSPR.NS', name: 'United Spirits', sector: 'FMCG' },
+  { ticker: 'GLOBUSSPR.NS', name: 'Globus Spirits', sector: 'FMCG' },
+  { ticker: 'THANGAMAYL.NS', name: 'Thangamayil Jewellery', sector: 'Jewellery' },
+  { ticker: 'PCJEWELLER.NS', name: 'PC Jeweller', sector: 'Jewellery' },
+  { ticker: 'RAJESHEXPO.NS', name: 'Rajesh Exports', sector: 'Jewellery' },
+
+  // Metals/Mining - New additions
+  { ticker: 'GMRINFRA.NS', name: 'GMR Infrastructure', sector: 'Infrastructure' },
+  { ticker: 'KIOCL.NS', name: 'KIOCL Limited', sector: 'Mining' },
+  { ticker: 'HINDCOPPER.NS', name: 'Hindustan Copper', sector: 'Metals & Mining' },
+  { ticker: 'NATIONALUM.NS', name: 'National Aluminium Company', sector: 'Metals & Mining' },
+  { ticker: 'JINDALSAW.NS', name: 'Jindal SAW', sector: 'Steel' },
+  { ticker: 'JSPL.NS', name: 'Jindal Steel and Power', sector: 'Steel' },
+  { ticker: 'MSTCLTD.NS', name: 'MSTC Limited', sector: 'Metals & Mining' },
+
+  // Infra/Logistics - New additions
+  { ticker: 'TVSSCS.NS', name: 'TVS Supply Chain Solutions', sector: 'Logistics' },
+  { ticker: 'MAHINDLOG.NS', name: 'Mahindra Logistics', sector: 'Logistics' },
+  { ticker: 'AEGISLOG.NS', name: 'Aegis Logistics', sector: 'Logistics' },
+  { ticker: 'SCI.NS', name: 'Shipping Corporation of India', sector: 'Shipping' },
+  { ticker: 'HOCL.NS', name: 'Hindustan Organic Chemicals', sector: 'Chemicals' },
+
+  // Real Estate - New additions
+  { ticker: 'NESCO.NS', name: 'Nesco Limited', sector: 'Real Estate' },
+  { ticker: 'PURAVANKARA.NS', name: 'Puravankara Limited', sector: 'Real Estate' },
+  { ticker: 'INDIABULLS.NS', name: 'Indiabulls Real Estate', sector: 'Real Estate' },
+  { ticker: 'IBREALEST.NS', name: 'Indiabulls Real Estate', sector: 'Real Estate' },
+  { ticker: 'ELDECO.NS', name: 'Eldeco Housing and Industries', sector: 'Real Estate' },
+  { ticker: 'ANANTRAJ.NS', name: 'Anant Raj Limited', sector: 'Real Estate' },
+
+  // Chemicals - New additions
+  { ticker: 'AARTI.NS', name: 'Aarti Industries', sector: 'Chemicals' },
+  { ticker: 'DEEPAKFERT.NS', name: 'Deepak Fertilisers', sector: 'Fertilizers' },
+  { ticker: 'CHAMBAL.NS', name: 'Chambal Fertilisers', sector: 'Fertilizers' },
+  { ticker: 'RCFLTD.NS', name: 'Rashtriya Chemicals and Fertilizers', sector: 'Fertilizers' },
+  { ticker: 'FACT.NS', name: 'Fertilisers and Chemicals Travancore', sector: 'Fertilizers' },
+  { ticker: 'AKZOINDIA.NS', name: 'Akzo Nobel India', sector: 'Paints' },
+  { ticker: 'BERGER.NS', name: 'Berger Paints India', sector: 'Paints' },
+  { ticker: 'BALCHEMLTD.NS', name: 'Balaji Amines', sector: 'Chemicals' },
+  { ticker: 'ROSSARI.NS', name: 'Rossari Biotech', sector: 'Chemicals' },
+  { ticker: 'NEOGEN.NS', name: 'Neogen Chemicals', sector: 'Chemicals' },
+  { ticker: 'JUBLINDS.NS', name: 'Jubilant Ingrevia', sector: 'Chemicals' },
+
+  // Power/Energy - New additions
+  { ticker: 'JPPOWER.NS', name: 'Jaiprakash Power Ventures', sector: 'Power' },
+  { ticker: 'RPOWER.NS', name: 'Reliance Power', sector: 'Power' },
+  { ticker: 'ADANIPOWER.NS', name: 'Adani Power', sector: 'Power' },
+  { ticker: 'GREENKO.NS', name: 'Greenko Energy', sector: 'Renewable Energy' },
+  { ticker: 'WAAREEENER.NS', name: 'Waaree Energies', sector: 'Renewable Energy' },
+  { ticker: 'WEBSOL.NS', name: 'Websol Energy System', sector: 'Renewable Energy' },
+  { ticker: 'BOROSIL.NS', name: 'Borosil Renewables', sector: 'Renewable Energy' },
+  { ticker: 'MAWANASUG.NS', name: 'Mawana Sugars', sector: 'Sugar' },
+  { ticker: 'TRIVENI.NS', name: 'Triveni Engineering', sector: 'Sugar' },
+  { ticker: 'PREMIER.NS', name: 'Premier Explosives', sector: 'Defence' },
+
+  // Telecom/Media - New additions
+  { ticker: 'MTNL.NS', name: 'Mahanagar Telephone Nigam', sector: 'Telecom' },
+  { ticker: 'GTL.NS', name: 'GTL Limited', sector: 'Telecom' },
+  { ticker: 'DISH.NS', name: 'Dish TV India', sector: 'Media & Entertainment' },
+  { ticker: 'SITI.NS', name: 'Siti Networks', sector: 'Media & Entertainment' },
+  { ticker: 'TIPS.NS', name: 'Tips Music', sector: 'Media & Entertainment' },
+  { ticker: 'EROSMEDIA.NS', name: 'Eros Media World', sector: 'Media & Entertainment' },
+  { ticker: 'SHEMAROO.NS', name: 'Shemaroo Entertainment', sector: 'Media & Entertainment' },
+  { ticker: 'BALAJITELE.NS', name: 'Balaji Telefilms', sector: 'Media & Entertainment' },
+  { ticker: 'NETWORKI8.NS', name: 'Network18 Media', sector: 'Media & Entertainment' },
+  { ticker: 'NDTV.NS', name: 'New Delhi Television', sector: 'Media & Entertainment' },
+  { ticker: 'SUNTVNEWS.NS', name: 'Sun TV Network', sector: 'Media & Entertainment' },
+  { ticker: 'HTMEDIA.NS', name: 'HT Media', sector: 'Media & Entertainment' },
+
+  // Textiles - New additions
+  { ticker: 'WELSPUN.NS', name: 'Welspun Living', sector: 'Textiles' },
+  { ticker: 'ALOKTEXT.NS', name: 'Alok Industries', sector: 'Textiles' },
+  { ticker: 'KITEX.NS', name: 'Kitex Garments', sector: 'Textiles' },
+  { ticker: 'RUPA.NS', name: 'Rupa and Company', sector: 'Textiles' },
+  { ticker: 'LUXIND.NS', name: 'Lux Industries', sector: 'Textiles' },
+  { ticker: 'DOLLAR.NS', name: 'Dollar Industries', sector: 'Textiles' },
+  { ticker: 'NITIN.NS', name: 'Nitin Spinners', sector: 'Textiles' },
+  { ticker: 'SUTLEJ.NS', name: 'Sutlej Textiles', sector: 'Textiles' },
+  { ticker: 'GARWARE.NS', name: 'Garware Technical Fibres', sector: 'Textiles' },
+  { ticker: 'DONEAR.NS', name: 'Donear Industries', sector: 'Textiles' },
+  { ticker: 'SIYARAM.NS', name: 'Siyaram Silk Mills', sector: 'Textiles' },
+  { ticker: 'MAFATLAL.NS', name: 'Mafatlal Industries', sector: 'Textiles' },
+
 ];
 
 export const ALL_NIFTY50 = [
