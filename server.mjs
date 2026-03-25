@@ -122,6 +122,11 @@ let cookieCache = null;
 let crumbFetchTime = 0;
 const CRUMB_TTL = 25 * 60 * 1000; // 25 minutes
 
+// Circuit breaker: if Yahoo Finance is unreachable, fail fast for 2 minutes
+let crumbCircuitOpen = false;
+let crumbCircuitOpenedAt = 0;
+const CIRCUIT_RESET_MS = 2 * 60 * 1000; // 2 minutes
+
 const BASE_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -138,7 +143,7 @@ const JSON_HEADERS = {
 };
 
 function httpsGet(url, headers, timeout = 15000) {
-  return new Promise((resolve, reject) => {
+  const requestPromise = new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, (res) => {
       let data = '';
       const cookies = res.headers['set-cookie'] || [];
@@ -151,6 +156,13 @@ function httpsGet(url, headers, timeout = 15000) {
       reject(new Error('Request timed out'));
     });
   });
+
+  // Race against a wall-clock timeout (catches DNS hangs that socket timeout misses)
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Request timed out')), timeout)
+  );
+
+  return Promise.race([requestPromise, timeoutPromise]);
 }
 
 async function getCrumb() {
@@ -159,9 +171,19 @@ async function getCrumb() {
     return { crumb: crumbCache, cookie: cookieCache };
   }
 
+  // Circuit breaker: fail fast if Yahoo Finance was recently unreachable
+  if (crumbCircuitOpen && (now - crumbCircuitOpenedAt) < CIRCUIT_RESET_MS) {
+    throw new Error('Yahoo Finance unreachable (circuit open) — using mock data');
+  }
+  // Reset circuit after cooldown
+  if (crumbCircuitOpen) {
+    crumbCircuitOpen = false;
+    console.log('🔄 Retrying Yahoo Finance...');
+  }
+
   console.log('🔄 Fetching Yahoo Finance session...');
 
-  // Try multiple consent/cookie endpoints
+  // Try multiple consent/cookie endpoints (short 2s timeout to fail fast)
   const cookieEndpoints = [
     'https://fc.yahoo.com/',
     'https://finance.yahoo.com/',
@@ -170,7 +192,7 @@ async function getCrumb() {
   let cookieStr = '';
   for (const endpoint of cookieEndpoints) {
     try {
-      const res = await httpsGet(endpoint, BASE_HEADERS, 10000);
+      const res = await httpsGet(endpoint, BASE_HEADERS, 2000);
       const cookies = res.cookies.map(c => c.split(';')[0]).join('; ');
       if (cookies.length > 10) {
         cookieStr = cookies;
@@ -181,7 +203,7 @@ async function getCrumb() {
     }
   }
 
-  // Try multiple crumb endpoints
+  // Try multiple crumb endpoints (short 2s timeout to fail fast)
   const crumbEndpoints = [
     'https://query1.finance.yahoo.com/v1/test/getcrumb',
     'https://query2.finance.yahoo.com/v1/test/getcrumb',
@@ -192,13 +214,14 @@ async function getCrumb() {
       const crumbRes = await httpsGet(endpoint, {
         ...JSON_HEADERS,
         ...(cookieStr ? { 'Cookie': cookieStr } : {}),
-      }, 10000);
+      }, 2000);
 
       const crumb = crumbRes.data.trim();
       if (crumb && !crumb.includes('<') && !crumb.includes('{') && crumb.length >= 3) {
         crumbCache = crumb;
         cookieCache = cookieStr;
         crumbFetchTime = now;
+        crumbCircuitOpen = false;
         console.log('✅ Yahoo Finance session ready');
         return { crumb, cookie: cookieStr };
       }
@@ -207,7 +230,10 @@ async function getCrumb() {
     }
   }
 
-  throw new Error('Could not get Yahoo Finance crumb — check your internet connection');
+  // Open circuit breaker so subsequent requests fail instantly
+  crumbCircuitOpen = true;
+  crumbCircuitOpenedAt = now;
+  throw new Error('Could not get Yahoo Finance crumb — using mock data');
 }
 
 async function fetchYF(url) {
