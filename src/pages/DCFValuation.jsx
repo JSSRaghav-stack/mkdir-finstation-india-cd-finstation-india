@@ -385,6 +385,23 @@ export default function DCFValuation() {
 
       {/* Right panel - outputs */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {fetchingStock && (
+          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)' }}>
+            <div className="text-sm font-semibold mb-3" style={{ color: '#60a5fa' }}>⏳ Building DCF Model...</div>
+            <div className="space-y-1.5">
+              {[
+                { step: 1, label: 'Fetching stock price & financials', done: true },
+                { step: 2, label: 'Building revenue model', done: false },
+                { step: 3, label: 'Calculating valuations', done: false },
+              ].map(s => (
+                <div key={s.step} className="flex items-center gap-2 text-xs" style={{ color: s.done ? '#22c55e' : '#64748b' }}>
+                  <span>{s.done ? '✅' : '⏳'}</span>
+                  <span>Step {s.step}: {s.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4 mb-5">
           <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>

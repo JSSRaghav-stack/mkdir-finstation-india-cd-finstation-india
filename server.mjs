@@ -761,6 +761,19 @@ const server = createServer(async (req, res) => {
         }
       }
 
+      // Deduplicate by title
+      const seenTitles = new Set();
+      const seenUrls = new Set();
+      news = news.filter(item => {
+        const titleKey = (item.title || '').toLowerCase().trim().slice(0, 60);
+        const urlKey = item.url || '';
+        if (seenTitles.has(titleKey)) return false;
+        if (urlKey && seenUrls.has(urlKey)) return false;
+        seenTitles.add(titleKey);
+        if (urlKey) seenUrls.add(urlKey);
+        return true;
+      });
+
       res.writeHead(200);
       res.end(JSON.stringify({ success: true, news }));
 

@@ -126,3 +126,194 @@ body {
 .recharts-tooltip-wrapper {
   outline: none !important;
 }
+
+/* Splash screen */
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #0a0a0f;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.splash-fade-out { animation: splashFadeOut 0.5s forwards; }
+@keyframes splashFadeOut {
+  0% { opacity: 1; pointer-events: all; }
+  100% { opacity: 0; pointer-events: none; }
+}
+@keyframes splashLoadBar {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+.splash-load-bar {
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 2px;
+  animation: splashLoadBar 1.8s ease-in-out forwards;
+}
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+/* Bottom navigation (mobile) */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: #0f0f1a;
+  border-top: 1px solid #1e1e2e;
+  display: flex;
+  align-items: stretch;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.bottom-nav-item {
+  min-height: 48px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 6px 0;
+}
+.bottom-nav-item.active {
+  color: #3b82f6;
+}
+
+/* Swipe/gesture styles */
+.swipe-container {
+  width: 100%;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.swipe-tabs {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.swipe-tabs::-webkit-scrollbar {
+  display: none;
+}
+.swipe-tab-panel {
+  scroll-snap-align: start;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+/* News carousel (horizontal scroll) */
+.news-carousel {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+}
+.news-carousel::-webkit-scrollbar {
+  display: none;
+}
+.news-carousel-item {
+  scroll-snap-align: start;
+  flex-shrink: 0;
+  width: 280px;
+}
+@media (max-width: 767px) {
+  .news-carousel-item { width: 85vw; }
+}
+
+/* Touch-friendly improvements */
+/* Minimum 44px touch target */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+/* Momentum scrolling */
+.scroll-momentum {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+/* No tap highlight flash */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Section indicator dots (for swipeable sections) */
+.section-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  align-items: center;
+}
+.section-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2d2d45;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+.section-dot.active {
+  background: #3b82f6;
+  width: 18px;
+  border-radius: 3px;
+}
+
+/* Range tab pill style (for chart timeframes) */
+.range-pill {
+  padding: 6px 16px;
+  border-radius: 20px;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.range-pill.active {
+  background: #3b82f6;
+  color: #fff;
+}
+.range-pill:not(.active) {
+  background: #1e1e2e;
+  color: #64748b;
+}
+
+/* Progress step tracker */
+.step-tracker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+  transition: color 0.2s;
+}
+.step-item.done {
+  color: #22c55e;
+}
+.step-item.loading {
+  color: #f59e0b;
+}

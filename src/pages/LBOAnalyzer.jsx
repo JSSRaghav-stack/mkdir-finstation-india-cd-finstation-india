@@ -443,6 +443,23 @@ export default function LBOAnalyzer() {
 
       {/* Right panel */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
+        {fetchingStock && (
+          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+            <div className="text-sm font-semibold mb-3" style={{ color: '#a78bfa' }}>⏳ Running LBO Model...</div>
+            <div className="space-y-1.5">
+              {[
+                { step: 1, label: 'Loading target company data', done: true },
+                { step: 2, label: 'Structuring debt schedule', done: false },
+                { step: 3, label: 'Computing IRR & returns', done: false },
+              ].map(s => (
+                <div key={s.step} className="flex items-center gap-2 text-xs" style={{ color: s.done ? '#22c55e' : '#64748b' }}>
+                  <span>{s.done ? '✅' : '⏳'}</span>
+                  <span>Step {s.step}: {s.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {!result ? (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: '#475569' }}>
             Adjust inputs to see LBO analysis

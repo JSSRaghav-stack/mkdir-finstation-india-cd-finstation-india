@@ -293,6 +293,50 @@ export async function fetchCompanyNews(symbol, companyName, finnhubKey) {
   }
 }
 
+// Fetch stock-specific news with deduplication and recency filtering
+export async function fetchStockSpecificNews(symbol, companyName, sector) {
+  try {
+    // Build a specific search query for this stock
+    const cleanSymbol = symbol.replace(/\.(NS|BO)$/i, '');
+    const params = new URLSearchParams({
+      symbol,
+      company: companyName || cleanSymbol,
+      sector: sector || '',
+      query: `${companyName || cleanSymbol} stock India ${sector || ''}`.trim(),
+    });
+    const res = await fetch(
+      `${API_BASE}/api/news/company?${params.toString()}`,
+      { signal: AbortSignal.timeout(15000) }
+    );
+    const json = await res.json();
+    const news = json?.news || [];
+
+    // Deduplicate by title (case-insensitive) and URL
+    const seen = new Set();
+    const unique = news.filter(item => {
+      const key = (item.title || '').toLowerCase().trim().slice(0, 60);
+      const urlKey = item.url || '';
+      if (seen.has(key) || (urlKey && seen.has(urlKey))) return false;
+      seen.add(key);
+      if (urlKey) seen.add(urlKey);
+      return true;
+    });
+
+    // Prefer recent news (within 48h) but fall back to all if too few
+    const now = Date.now();
+    const recent = unique.filter(item => {
+      if (!item.datetime && !item.publishedAt) return false;
+      const ts = item.datetime ? item.datetime * 1000 : new Date(item.publishedAt).getTime();
+      return (now - ts) < 48 * 60 * 60 * 1000;
+    });
+
+    return recent.length >= 2 ? recent : unique;
+  } catch (e) {
+    console.error('fetchStockSpecificNews error:', e.message);
+    return [];
+  }
+}
+
 // Fetch live market news from Finnhub (with Yahoo Finance fallback)
 export async function fetchMarketNews(finnhubKey) {
   const key = finnhubKey || localStorage.getItem('finnhub_api_key') || DEFAULT_FINNHUB_KEY;
