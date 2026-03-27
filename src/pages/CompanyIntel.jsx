@@ -747,33 +747,43 @@ export default function CompanyIntel() {
             );
           })()}
 
-          {/* M&A / Corporate Actions News */}
-          {(() => {
-            const maNews = [
-              { title: `${stockData.name} in talks for strategic acquisition to strengthen market position — sources`, source: 'Economic Times', time: '3d ago', category: 'M&A' },
-              { title: `${stockData.name} board to consider fundraise via preferential allotment at board meeting`, source: 'Business Standard', time: '5d ago', category: 'Corporate' },
-              { title: `Analysts see ${stockData.name} as key beneficiary of sector consolidation wave in FY27`, source: 'Mint', time: '1w ago', category: 'Analysis' },
-            ];
+          {/* M&A / Corporate Actions — only show if live news available */}
+          {liveNews && liveNews.length > 0 && (() => {
+            const maKeywords = ['acqui', 'merger', 'buyback', 'fundrais', 'allotment', 'dividend', 'bonus', 'split', 'stake', 'deal', 'bid', 'takeover'];
+            const maNews = liveNews.filter(n =>
+              maKeywords.some(k => (n.title || '').toLowerCase().includes(k))
+            ).slice(0, 4);
+            if (maNews.length === 0) return null;
             return (
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🤝 M&A & Corporate Actions</h3>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>Live M&A Tracker</span>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>Live</span>
                 </div>
                 <div className="news-carousel pb-2">
-                  {maNews.map((n,i) => (
-                    <div key={i} className="news-carousel-item rounded-xl p-4 card-hover flex-shrink-0" style={{ background: '#12121a', border: '1px solid #1e1e2e', width: 260 }}>
-                      <span className="text-xs px-1.5 py-0.5 rounded mb-2 inline-block font-medium"
-                        style={{ background: n.category==='M&A' ? 'rgba(245,158,11,0.12)' : 'rgba(59,130,246,0.12)', color: n.category==='M&A' ? '#f59e0b' : '#60a5fa' }}>
-                        {n.category}
-                      </span>
-                      <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>{n.title}</div>
-                      <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
-                        <span style={{ color: '#64748b' }}>{n.source}</span>
-                        <span>{n.time}</span>
-                      </div>
-                    </div>
-                  ))}
+                  {maNews.map((n,i) => {
+                    const url = n.url || n.link || '#';
+                    const isExternal = url && url !== '#';
+                    return (
+                      <a key={i} href={isExternal ? url : undefined} target={isExternal ? '_blank' : undefined}
+                        rel="noopener noreferrer"
+                        className="news-carousel-item rounded-xl p-4 card-hover block"
+                        style={{ background: '#12121a', border: '1px solid #1e1e2e', textDecoration: 'none', cursor: isExternal ? 'pointer' : 'default' }}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs px-1.5 py-0.5 rounded font-medium"
+                            style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
+                            {n.category || 'Corporate'}
+                          </span>
+                          {isExternal && <span className="text-xs" style={{ color: '#334155' }}>↗</span>}
+                        </div>
+                        <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>{n.title}</div>
+                        <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
+                          <span style={{ color: '#64748b' }}>{n.source}</span>
+                          <span>{n.time || ''}</span>
+                        </div>
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -781,12 +791,10 @@ export default function CompanyIntel() {
 
           {/* Company News */}
           {(() => {
-            // Priority: live fetched news > stockData.news > generated mock
+            // Only show real news — no fake generated templates
             const rawNews = liveNews && liveNews.length > 0
               ? liveNews
-              : (stockData.news && stockData.news.length > 0
-                  ? stockData.news
-                  : generateStockNews(stockData.name, stockData.sector));
+              : [];
 
             // Deduplicate by title prefix + url
             const seen = new Set();
@@ -814,6 +822,11 @@ export default function CompanyIntel() {
                     {isLiveNews ? `● Live · ${news.length}` : `${news.length} articles`}
                   </span>
                 </div>
+                {news.length === 0 && (
+                  <div className="rounded-xl p-6 text-center" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                    <div className="text-sm" style={{ color: '#475569' }}>Live news unavailable — connect to internet for real-time articles</div>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {news.slice(0, 6).map((n, i) => {
                     const url = n.url || n.link || '#';
