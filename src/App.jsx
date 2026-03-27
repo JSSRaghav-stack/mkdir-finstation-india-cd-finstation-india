@@ -4,15 +4,12 @@ import CompanyIntel from './pages/CompanyIntel.jsx';
 import AIResearch from './pages/AIResearch.jsx';
 import DCFValuation from './pages/DCFValuation.jsx';
 import LBOAnalyzer from './pages/LBOAnalyzer.jsx';
-import Settings from './pages/Settings.jsx';
-
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
   { id: 'company', label: 'Company Intel', icon: '🔍' },
   { id: 'ai', label: 'AI Research', icon: '🤖' },
   { id: 'dcf', label: 'DCF Valuation', icon: '📊' },
   { id: 'lbo', label: 'LBO Analyzer', icon: '💼' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 
 const BOTTOM_NAV_ITEMS = [
@@ -29,7 +26,6 @@ const SUBTITLES = {
   ai: 'AI-Powered Equity Research Reports',
   dcf: 'Discounted Cash Flow Valuation Model',
   lbo: 'Leveraged Buyout Analysis',
-  settings: 'API Keys & Data Sources',
 };
 
 function SplashScreen({ visible, fadeOut }) {
@@ -305,7 +301,6 @@ export default function App() {
             {activeSection === 'ai' && <AIResearch />}
             {activeSection === 'dcf' && <DCFValuation />}
             {activeSection === 'lbo' && <LBOAnalyzer />}
-            {activeSection === 'settings' && <Settings />}
           </div>
         </main>
 
