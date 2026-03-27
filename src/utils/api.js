@@ -322,15 +322,15 @@ export async function fetchStockSpecificNews(symbol, companyName, sector) {
       return true;
     });
 
-    // Prefer recent news (within 48h) but fall back to all if too few
+    // Show news up to 30 days old, fall back to all if none have timestamps
     const now = Date.now();
     const recent = unique.filter(item => {
-      if (!item.datetime && !item.publishedAt) return false;
+      if (!item.datetime && !item.publishedAt) return true; // include if no timestamp
       const ts = item.datetime ? item.datetime * 1000 : new Date(item.publishedAt).getTime();
-      return (now - ts) < 48 * 60 * 60 * 1000;
+      return (now - ts) < 30 * 24 * 60 * 60 * 1000;
     });
 
-    return recent.length >= 2 ? recent : unique;
+    return recent.length > 0 ? recent : unique;
   } catch (e) {
     console.error('fetchStockSpecificNews error:', e.message);
     return [];

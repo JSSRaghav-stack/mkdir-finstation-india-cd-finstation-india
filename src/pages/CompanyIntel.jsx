@@ -810,10 +810,12 @@ export default function CompanyIntel() {
 
           {/* Company News */}
           {(() => {
-            // Only show real news — no fake generated templates
-            const rawNews = liveNews && liveNews.length > 0
-              ? liveNews
-              : [];
+            // Live news preferred; fallback to generated news with Google News search URLs
+            const generatedNews = generateStockNews(stockData.name, stockData.sector).map(n => ({
+              ...n,
+              url: `https://news.google.com/search?q=${encodeURIComponent(stockData.name + ' ' + (n.title || '').split(' ').slice(0,4).join(' '))}`,
+            }));
+            const rawNews = liveNews && liveNews.length > 0 ? liveNews : generatedNews;
 
             // Deduplicate by title prefix + url
             const seen = new Set();
@@ -841,11 +843,6 @@ export default function CompanyIntel() {
                     {isLiveNews ? `● Live · ${news.length}` : `${news.length} articles`}
                   </span>
                 </div>
-                {news.length === 0 && (
-                  <div className="rounded-xl p-6 text-center" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                    <div className="text-sm" style={{ color: '#475569' }}>Live news unavailable — connect to internet for real-time articles</div>
-                  </div>
-                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {news.slice(0, 6).map((n, i) => {
                     const url = n.url || n.link || '#';
