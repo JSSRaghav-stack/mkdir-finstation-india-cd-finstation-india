@@ -64,9 +64,12 @@ export default function CompanyIntel() {
   const [isLive, setIsLive] = useState(false);
   const [ratioTab, setRatioTab] = useState('Valuation');
   const [liveNews, setLiveNews] = useState(null);
+  const [activeTab, setActiveTab] = useState('Overview');
   const inputRef = useRef(null);
   const searchTimer = useRef(null);
+  const swipeStartX = useRef(null);
   const [beginnerMode, setBeginnerMode] = useState(false);
+  const TABS = ['Overview', 'Financials', 'Ratios', 'News'];
 
   function computeScore(sd) {
     if (!sd) return null;
@@ -269,10 +272,22 @@ export default function CompanyIntel() {
   const fmt = (v, prefix = '') =>
     v === 'N/A' || v === undefined || v === null ? 'N/A' : `${prefix}${v}`;
 
+  const handleSwipeStart = (e) => { swipeStartX.current = e.touches[0].clientX; };
+  const handleSwipeEnd = (e) => {
+    if (swipeStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - swipeStartX.current;
+    swipeStartX.current = null;
+    if (Math.abs(dx) < 40) return;
+    const idx = TABS.indexOf(activeTab);
+    if (dx < -40 && idx < TABS.length - 1) setActiveTab(TABS[idx + 1]);
+    if (dx > 40 && idx > 0) setActiveTab(TABS[idx - 1]);
+  };
+
   return (
-    <div className="h-full overflow-y-auto px-4 md:px-6 py-5" style={{ background: '#0a0a0f' }}>
-      {/* Search */}
-      <div className="relative mb-6" style={{ maxWidth: 480 }}>
+    <div className="h-full overflow-y-auto" style={{ background: '#0a0a0f' }}>
+      {/* Sticky search */}
+      <div className="sticky top-0 z-30 px-4 md:px-6 pt-4 pb-3" style={{ background: '#0a0a0f', borderBottom: stockData ? '1px solid #1a1a2a' : 'none' }}>
+      <div className="relative" style={{ maxWidth: 480 }}>
         <div
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
           style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
@@ -327,10 +342,11 @@ export default function CompanyIntel() {
           </div>
         )}
       </div>
+      </div>
 
       {/* Empty state */}
       {!selected && !loading && (
-        <div className="flex flex-col items-center justify-center" style={{ paddingTop: 80 }}>
+        <div className="flex flex-col items-center justify-center px-4" style={{ paddingTop: 80 }}>
           <div className="text-6xl mb-4">🔍</div>
           <div className="text-xl font-semibold mb-2" style={{ color: '#94a3b8' }}>Search for a stock</div>
           <div className="text-sm text-center" style={{ color: '#475569', maxWidth: 360 }}>
@@ -358,9 +374,9 @@ export default function CompanyIntel() {
 
       {/* Loading */}
       {loading && (
-        <div className="space-y-4">
-          <Skeleton w="100%" h={80} className="rounded-xl" />
-          <Skeleton w="100%" h={280} className="rounded-xl" />
+        <div className="space-y-4 px-4 md:px-6 pt-4">
+          <Skeleton w="100%" h={100} className="rounded-xl" />
+          <Skeleton w="100%" h={240} className="rounded-xl" />
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {Array(6).fill(0).map((_, i) => <Skeleton key={i} w="100%" h={80} className="rounded-xl" />)}
           </div>
@@ -369,7 +385,7 @@ export default function CompanyIntel() {
 
       {/* No data found */}
       {selected && !loading && !stockData && (
-        <div className="flex flex-col items-center justify-center" style={{ paddingTop: 60 }}>
+        <div className="flex flex-col items-center justify-center px-4" style={{ paddingTop: 60 }}>
           <div className="text-5xl mb-3">⚠️</div>
           <div className="text-lg font-semibold mb-2" style={{ color: '#94a3b8' }}>
             Data unavailable for {selected.name}
@@ -380,521 +396,450 @@ export default function CompanyIntel() {
         </div>
       )}
 
-      {/* Stock data */}
+      {/* Stock data — swipe carousel */}
       {stockData && !loading && (
-        <div className="space-y-5">
-          {/* Header card */}
-          <div
-            className="rounded-xl p-5"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-          >
-            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h2 className="text-xl font-bold" style={{ color: '#f1f5f9' }}>{stockData.name}</h2>
-                  <span
-                    className="text-xs px-2 py-0.5 rounded font-medium"
-                    style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}
-                  >
-                    {stockData.ticker?.replace('.NS', '')} • {stockData.exchange}
-                  </span>
-                  <span
-                    className="text-xs px-2 py-0.5 rounded"
-                    style={{
-                      background: isLive ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
-                      color: isLive ? '#4ade80' : '#64748b',
-                      border: `1px solid ${isLive ? 'rgba(34,197,94,0.2)' : '#1e1e2e'}`,
-                    }}
-                  >
-                    {isLive ? '● Live' : '● Mock'}
-                  </span>
+        <div>
+          {/* Compact header — always visible */}
+          <div className="px-4 md:px-6 pt-3 pb-3" style={{ background: '#0d0d15' }}>
+            {/* Name row */}
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h2 className="text-base font-bold leading-tight" style={{ color: '#f1f5f9' }}>{stockData.name}</h2>
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
+                {stockData.ticker?.replace('.NS', '')}
+              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#1e1e2e', color: '#64748b' }}>{stockData.sector}</span>
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: isLive ? 'rgba(34,197,94,0.08)' : 'rgba(100,116,139,0.08)', color: isLive ? '#4ade80' : '#64748b' }}>
+                {isLive ? '● Live' : '● Mock'}
+              </span>
+            </div>
+            {/* Price row */}
+            <div className="flex items-baseline gap-3 mb-2">
+              <span className="text-2xl font-black" style={{ color: '#f1f5f9' }}>
+                ₹{(stockData.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+              {isLive && stockData.changePct !== undefined && (
+                <span className="text-sm font-semibold" style={{ color: stockData.changePct >= 0 ? '#22c55e' : '#ef4444' }}>
+                  {stockData.changePct >= 0 ? '+' : ''}{stockData.changePct.toFixed(2)}%
+                </span>
+              )}
+              {isLive && stockData.change !== undefined && (
+                <span className="text-xs" style={{ color: '#475569' }}>
+                  {stockData.change >= 0 ? '+' : ''}₹{Math.abs(stockData.change).toFixed(2)} today
+                </span>
+              )}
+            </div>
+            {/* Quick stats row — horizontal scroll */}
+            <div className="flex gap-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+              {[
+                { label: 'Mkt Cap', value: stockData.marketCapCr ? formatMarketCap(stockData.marketCapCr) : '—' },
+                { label: 'P/E', value: stockData.pe !== 'N/A' && stockData.pe ? `${stockData.pe}x` : '—' },
+                { label: 'ROE', value: stockData.roe !== 'N/A' && stockData.roe ? `${stockData.roe}%` : '—' },
+                { label: 'D/E', value: stockData.debtEquity !== 'N/A' && stockData.debtEquity ? `${stockData.debtEquity}x` : '—' },
+                { label: '52W H', value: stockData.high52w ? `₹${stockData.high52w.toLocaleString('en-IN')}` : '—' },
+                { label: '52W L', value: stockData.low52w ? `₹${stockData.low52w.toLocaleString('en-IN')}` : '—' },
+              ].map(item => (
+                <div key={item.label} className="flex-shrink-0 text-center">
+                  <div className="text-xs" style={{ color: '#475569' }}>{item.label}</div>
+                  <div className="text-xs font-semibold mt-0.5" style={{ color: '#e2e8f0' }}>{item.value}</div>
                 </div>
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: '#1e1e2e', color: '#94a3b8' }}>
-                    {stockData.sector}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-3">
-                  <span className="text-3xl font-bold" style={{ color: '#f1f5f9' }}>
-                    ₹{(stockData.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                  {displayChart.length >= 2 && (
-                    <span className="text-sm font-medium" style={{ color: priceChange >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}% ({range})
-                    </span>
-                  )}
-                  {isLive && stockData.changePct !== undefined && (
-                    <span className="text-sm font-medium" style={{ color: stockData.changePct >= 0 ? '#22c55e' : '#ef4444' }}>
-                      {stockData.changePct >= 0 ? '+' : ''}{stockData.changePct.toFixed(2)}% today
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>Market Cap</div>
-                  <div className="font-semibold" style={{ color: '#e2e8f0' }}>
-                    {stockData.marketCapCr ? formatMarketCap(stockData.marketCapCr) : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>P/E Ratio</div>
-                  <div className="font-semibold" style={{ color: '#e2e8f0' }}>{fmt(stockData.pe)}x</div>
-                </div>
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>52W High</div>
-                  <div className="font-semibold" style={{ color: '#22c55e' }}>
-                    {stockData.high52w ? `₹${stockData.high52w.toLocaleString('en-IN')}` : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>52W Low</div>
-                  <div className="font-semibold" style={{ color: '#ef4444' }}>
-                    {stockData.low52w ? `₹${stockData.low52w.toLocaleString('en-IN')}` : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>EPS (TTM)</div>
-                  <div className="font-semibold" style={{ color: '#e2e8f0' }}>
-                    {stockData.eps !== 'N/A' ? `₹${stockData.eps}` : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs mb-0.5" style={{ color: '#64748b' }}>Beta</div>
-                  <div className="font-semibold" style={{ color: '#e2e8f0' }}>{fmt(stockData.beta)}</div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Price chart */}
-          {displayChart.length > 0 && (
-            <div
-              className="rounded-xl p-5"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Price Chart</h3>
-                <div className="flex gap-1">
-                  {RANGE_OPTIONS.map((r) => (
-                    <button
-                      key={r.label}
-                      onClick={() => handleRangeChange(r.label)}
-                      className="px-3 py-1 rounded text-xs font-medium transition-all"
-                      style={{
-                        background: range === r.label ? '#3b82f6' : '#1e1e2e',
-                        color: range === r.label ? '#fff' : '#64748b',
-                      }}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={230}>
-                <LineChart data={displayChart} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={(v) => {
-                      const d = new Date(v);
-                      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-                    }}
-                    tick={{ fill: '#475569', fontSize: 10 }}
-                    interval={Math.floor(displayChart.length / 6)}
-                    axisLine={{ stroke: '#1e1e2e' }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    domain={['auto', 'auto']}
-                    tick={{ fill: '#475569', fontSize: 10 }}
-                    tickFormatter={(v) => `₹${v.toLocaleString('en-IN')}`}
-                    axisLine={false}
-                    tickLine={false}
-                    width={70}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Line
-                    type="monotone"
-                    dataKey="close"
-                    stroke={priceChange >= 0 ? '#22c55e' : '#ef4444'}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4, fill: priceChange >= 0 ? '#22c55e' : '#ef4444' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+          {/* Sticky tab bar */}
+          <div className="sticky z-20 flex border-b overflow-x-auto" style={{ top: 0, background: '#0d0d15', borderColor: '#1a1a2a', scrollbarWidth: 'none' }}>
+            {TABS.map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  flex: 1,
+                  minWidth: 72,
+                  minHeight: 44,
+                  padding: '10px 4px',
+                  fontSize: 13,
+                  fontWeight: activeTab === tab ? 600 : 400,
+                  color: activeTab === tab ? '#60a5fa' : '#475569',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
 
-          {/* Score + Should I Buy + Beginner Mode */}
-          {(() => {
-            const analysis = computeScore(stockData);
-            const peers = getPeerComps(stockData, STOCK_LIST);
-            if (!analysis) return null;
-            return (
-              <>
-                {/* Top bar: Score + Beginner Toggle */}
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                  <div className="flex items-center gap-4">
-                    <div className="text-center">
-                      <div className="text-3xl font-black" style={{ color: analysis.score >= 7 ? '#22c55e' : analysis.score >= 5 ? '#f59e0b' : '#ef4444' }}>{analysis.score}<span className="text-lg text-gray-500">/10</span></div>
-                      <div className="text-xs" style={{ color: '#64748b' }}>Stock Score</div>
+          {/* Swipeable tab content */}
+          <div
+            className="px-4 md:px-6 py-4 space-y-4"
+            onTouchStart={handleSwipeStart}
+            onTouchEnd={handleSwipeEnd}
+            style={{ minHeight: 400 }}
+          >
+
+            {/* ── OVERVIEW TAB ── */}
+            {activeTab === 'Overview' && (() => {
+              const analysis = computeScore(stockData);
+              const peers = getPeerComps(stockData, STOCK_LIST);
+              return (
+                <div className="space-y-4">
+                  {/* Price chart */}
+                  {displayChart.length > 0 && (
+                    <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Price Chart</h3>
+                        <div className="flex gap-1">
+                          {RANGE_OPTIONS.map((r) => (
+                            <button key={r.label} onClick={() => handleRangeChange(r.label)}
+                              style={{
+                                padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500,
+                                background: range === r.label ? '#3b82f6' : '#1e1e2e',
+                                color: range === r.label ? '#fff' : '#64748b',
+                                border: 'none', cursor: 'pointer', minHeight: 28,
+                              }}>
+                              {r.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={displayChart} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                          <XAxis dataKey="date"
+                            tickFormatter={(v) => new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                            tick={{ fill: '#475569', fontSize: 9 }} interval={Math.floor(displayChart.length / 5)}
+                            axisLine={{ stroke: '#1e1e2e' }} tickLine={false} />
+                          <YAxis domain={['auto', 'auto']} tick={{ fill: '#475569', fontSize: 9 }}
+                            tickFormatter={(v) => `₹${v.toLocaleString('en-IN')}`}
+                            axisLine={false} tickLine={false} width={60} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Line type="monotone" dataKey="close"
+                            stroke={priceChange >= 0 ? '#22c55e' : '#ef4444'} strokeWidth={2}
+                            dot={false} activeDot={{ r: 4, fill: priceChange >= 0 ? '#22c55e' : '#ef4444' }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                      {displayChart.length >= 2 && (
+                        <div className="mt-2 text-center text-xs" style={{ color: priceChange >= 0 ? '#22c55e' : '#ef4444' }}>
+                          {priceChange >= 0 ? '▲' : '▼'} {Math.abs(priceChange).toFixed(2)}% in {range}
+                        </div>
+                      )}
                     </div>
-                    <div className="px-4 py-2 rounded-lg font-bold text-sm" style={{ background: analysis.recBg, color: analysis.recColor, border: `1px solid ${analysis.recColor}40` }}>
-                      {analysis.recommendation}
+                  )}
+
+                  {/* Score + recommendation */}
+                  {analysis && (
+                    <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="text-center">
+                            <div className="text-2xl font-black" style={{ color: analysis.score >= 7 ? '#22c55e' : analysis.score >= 5 ? '#f59e0b' : '#ef4444' }}>
+                              {analysis.score}<span className="text-sm font-normal" style={{ color: '#475569' }}>/10</span>
+                            </div>
+                            <div className="text-xs" style={{ color: '#64748b' }}>Score</div>
+                          </div>
+                          <div className="px-3 py-1.5 rounded-lg font-bold text-sm" style={{ background: analysis.recBg, color: analysis.recColor, border: `1px solid ${analysis.recColor}40` }}>
+                            {analysis.recommendation}
+                          </div>
+                        </div>
+                        <button onClick={() => setBeginnerMode(b => !b)}
+                          style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 500, minHeight: 32,
+                            background: beginnerMode ? 'rgba(59,130,246,0.15)' : '#1e1e2e',
+                            color: beginnerMode ? '#60a5fa' : '#64748b',
+                            border: `1px solid ${beginnerMode ? '#3b82f6' : '#2d2d45'}`, cursor: 'pointer' }}>
+                          {beginnerMode ? '🎓 ON' : '🎓 Beginner'}
+                        </button>
+                      </div>
+                      <p className="text-xs leading-relaxed mb-3" style={{ color: '#94a3b8' }}>{analysis.report}</p>
+                      <div className="space-y-1.5">
+                        {analysis.reasons.map((r, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94a3b8' }}>
+                            <span style={{ color: r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '#ef4444' : '#22c55e', flexShrink: 0 }}>
+                              {r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '⚠' : '✓'}
+                            </span>
+                            <span>{r}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 text-xs" style={{ color: '#334155' }}>⚠ Not financial advice. Do your own research.</div>
                     </div>
-                  </div>
-                  <button
-                    onClick={() => setBeginnerMode(b => !b)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                    style={{ background: beginnerMode ? 'rgba(59,130,246,0.15)' : '#1e1e2e', color: beginnerMode ? '#60a5fa' : '#64748b', border: `1px solid ${beginnerMode ? '#3b82f6' : '#2d2d45'}` }}
-                  >
-                    {beginnerMode ? '🎓 Beginner ON' : '🎓 Beginner Mode'}
-                  </button>
-                </div>
+                  )}
 
-                {/* 1-Minute Report */}
-                <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                  <div className="text-sm font-semibold mb-2" style={{ color: '#f1f5f9' }}>⚡ 1-Minute Report</div>
-                  <p className="text-sm leading-relaxed" style={{ color: '#94a3b8' }}>{analysis.report}</p>
-                  {beginnerMode && <p className="text-xs mt-2 p-2 rounded" style={{ background: '#0d0d15', color: '#60a5fa' }}>💡 This is a quick summary of the company's financial health in plain English.</p>}
-                </div>
+                  {/* Today's trading — live only */}
+                  {isLive && (
+                    <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Today's Trading</div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { label: 'Open', value: stockData.open ? `₹${stockData.open.toLocaleString('en-IN')}` : '—' },
+                          { label: 'Day High', value: stockData.dayHigh ? `₹${stockData.dayHigh.toLocaleString('en-IN')}` : '—', color: '#22c55e' },
+                          { label: 'Day Low', value: stockData.dayLow ? `₹${stockData.dayLow.toLocaleString('en-IN')}` : '—', color: '#ef4444' },
+                          { label: 'Prev Close', value: stockData.prevClose ? `₹${stockData.prevClose.toLocaleString('en-IN')}` : '—' },
+                        ].map(item => (
+                          <div key={item.label} className="rounded-lg p-3" style={{ background: '#0d0d15', border: '1px solid #1a1a2a' }}>
+                            <div className="text-xs mb-1" style={{ color: '#475569' }}>{item.label}</div>
+                            <div className="text-sm font-semibold" style={{ color: item.color || '#e2e8f0' }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                {/* Should I Buy Panel */}
+                  {/* Peer comparison */}
+                  {peers.length > 0 && (
+                    <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="px-4 py-3 text-sm font-semibold" style={{ color: '#f1f5f9', borderBottom: '1px solid #1a1a2a' }}>
+                        Peer Comparison — {stockData.sector}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
+                              {['Company', 'P/E', 'P/B', 'ROE %'].map(h => (
+                                <th key={h} className="px-3 py-2 text-left font-medium" style={{ color: '#475569' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr style={{ background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid #1e1e2e' }}>
+                              <td className="px-3 py-2 font-semibold" style={{ color: '#60a5fa' }}>{stockData.name} ★</td>
+                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.pe !== 'N/A' ? stockData.pe + 'x' : '—'}</td>
+                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.pb !== 'N/A' ? stockData.pb + 'x' : '—'}</td>
+                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.roe !== 'N/A' ? stockData.roe + '%' : '—'}</td>
+                            </tr>
+                            {peers.map((p, i) => (
+                              <tr key={i} style={{ borderBottom: '1px solid #1a1a2a' }}>
+                                <td className="px-3 py-2" style={{ color: '#94a3b8' }}>{p.name}</td>
+                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.pe}x</td>
+                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.pb}x</td>
+                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.roe}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── FINANCIALS TAB ── */}
+            {activeTab === 'Financials' && (
+              <div className="space-y-4">
+                {/* Key financials list */}
                 <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>🤔 Should I Buy?</div>
-                  <div className="space-y-2">
-                    {analysis.reasons.map((r, i) => (
-                      <div key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94a3b8' }}>
-                        <span style={{ color: r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '#ef4444' : '#22c55e' }}>
-                          {r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '⚠️' : '✅'}
+                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Key Financials (TTM)</div>
+                  <div className="divide-y" style={{ borderColor: '#1a1a2a' }}>
+                    {[
+                      { label: 'Revenue', value: stockData.revenue ? `₹${Math.round(stockData.revenue / 100).toLocaleString('en-IN')} Cr` : '—', tooltip: 'Trailing twelve months total revenue' },
+                      { label: 'Net Profit', value: stockData.netProfit ? `₹${Math.round(stockData.netProfit / 100).toLocaleString('en-IN')} Cr` : '—', tooltip: 'Profit after all expenses and taxes' },
+                      { label: 'EBITDA Margin', value: stockData.ebitdaMargin && stockData.ebitdaMargin !== 'N/A' ? `${stockData.ebitdaMargin}%` : '—', tooltip: 'Operating profit margin' },
+                      { label: 'Net Margin', value: stockData.netMargin && stockData.netMargin !== 'N/A' ? `${stockData.netMargin}%` : '—', tooltip: 'Net profit as % of revenue' },
+                      { label: 'Return on Equity', value: stockData.roe && stockData.roe !== 'N/A' ? `${stockData.roe}%` : '—', tooltip: 'Net profit as % of shareholder equity' },
+                      { label: 'ROCE', value: stockData.roce && stockData.roce !== 'N/A' ? `${stockData.roce}%` : '—', tooltip: 'Return on Capital Employed' },
+                      { label: 'Debt / Equity', value: stockData.debtEquity !== 'N/A' && stockData.debtEquity != null ? `${stockData.debtEquity}x` : '—', tooltip: 'Total debt divided by shareholder equity' },
+                      { label: 'Current Ratio', value: stockData.currentRatio !== 'N/A' && stockData.currentRatio != null ? `${stockData.currentRatio}x` : '—', tooltip: 'Current assets / current liabilities' },
+                      { label: 'EPS (TTM)', value: stockData.eps !== 'N/A' ? `₹${stockData.eps}` : '—', tooltip: 'Earnings per share' },
+                      { label: 'Book Value/Share', value: stockData.bookValue !== 'N/A' && stockData.bookValue != null ? `₹${stockData.bookValue}` : '—', tooltip: 'Net asset value per share' },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center justify-between py-2.5">
+                        <span className="text-xs" style={{ color: '#64748b' }}>
+                          <Tooltip2 label={item.tooltip}>{item.label}</Tooltip2>
                         </span>
-                        <span>{r}</span>
-                        {beginnerMode && <span style={{ color: '#475569' }}> — {i === 0 ? 'This compares price to earnings' : i === 1 ? 'Higher ROE = company uses money efficiently' : 'Lower debt = safer company'}</span>}
+                        <span className="text-sm font-semibold" style={{ color: item.value === '—' ? '#334155' : '#e2e8f0' }}>
+                          {item.value}
+                        </span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 pt-3 text-xs" style={{ borderTop: '1px solid #1e1e2e', color: '#475569' }}>⚠️ Not financial advice. Do your own research.</div>
                 </div>
 
-                {/* Peer Comps */}
-                {peers.length > 0 && (
-                  <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                    <div className="px-4 pt-4 pb-2 text-sm font-semibold" style={{ color: '#f1f5f9' }}>📊 Peer Comparison — {stockData.sector}</div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
-                            {['Company', 'P/E', 'P/B', 'ROE %'].map(h => (
-                              <th key={h} className="px-4 py-2 text-left font-medium" style={{ color: '#475569' }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr style={{ background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid #1e1e2e' }}>
-                            <td className="px-4 py-2 font-semibold" style={{ color: '#60a5fa' }}>{stockData.name} ★</td>
-                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.pe !== 'N/A' ? stockData.pe + 'x' : 'N/A'}</td>
-                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.pb !== 'N/A' ? stockData.pb + 'x' : 'N/A'}</td>
-                            <td className="px-4 py-2" style={{ color: '#e2e8f0' }}>{stockData.roe !== 'N/A' ? stockData.roe + '%' : 'N/A'}</td>
-                          </tr>
-                          {peers.map((p, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid #1a1a2a' }}>
-                              <td className="px-4 py-2" style={{ color: '#94a3b8' }}>{p.name}</td>
-                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.pe}x</td>
-                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.pb}x</td>
-                              <td className="px-4 py-2" style={{ color: '#64748b' }}>{p.roe}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-
-          {/* Financials grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Key Financials */}
-            <div
-              className="rounded-xl p-5"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-            >
-              <h3 className="text-sm font-semibold mb-4" style={{ color: '#f1f5f9' }}>Key Financials (TTM)</h3>
-              <div className="space-y-3">
-                {[
-                  { label: 'Revenue', value: stockData.revenue ? `₹${Math.round(stockData.revenue / 100).toLocaleString('en-IN')} Cr` : 'N/A', tooltip: 'Total revenue for trailing twelve months' },
-                  { label: 'Net Profit', value: stockData.netProfit ? `₹${Math.round(stockData.netProfit / 100).toLocaleString('en-IN')} Cr` : 'N/A', tooltip: 'Profit after all expenses and taxes' },
-                  { label: 'EBITDA Margin', value: stockData.ebitdaMargin && stockData.ebitdaMargin !== 'N/A' ? `${stockData.ebitdaMargin}%` : 'N/A', tooltip: 'Earnings before interest, tax, D&A as % of revenue' },
-                  { label: 'Return on Equity', value: stockData.roe && stockData.roe !== 'N/A' ? `${stockData.roe}%` : 'N/A', tooltip: 'Net profit as % of shareholder equity' },
-                  { label: 'Debt / Equity', value: stockData.debtEquity ?? 'N/A', tooltip: 'Total debt divided by shareholder equity' },
-                  { label: 'Current Ratio', value: stockData.currentRatio ?? 'N/A', tooltip: 'Current assets divided by current liabilities' },
-                ].map((item) => (
-                  <div key={item.label} className="flex justify-between items-center py-1" style={{ borderBottom: '1px solid #1a1a2a' }}>
-                    <span className="text-xs" style={{ color: '#64748b' }}>
-                      <Tooltip2 label={item.tooltip}>{item.label}</Tooltip2>
-                    </span>
-                    <span className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>
-                      {item.value ?? 'N/A'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Valuation Ratios */}
-            <div>
-              <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Key Ratios & Metrics</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
-                {[
-                  { label: 'P/E Ratio', value: stockData.pe !== 'N/A' ? `${stockData.pe}x` : 'N/A', tooltip: 'Price to Earnings — how much you pay per ₹1 of profit' },
-                  { label: 'P/B Ratio', value: stockData.pb !== 'N/A' ? `${stockData.pb}x` : 'N/A', tooltip: 'Price to Book — market price vs. book value of assets' },
-                  { label: 'EV/EBITDA', value: stockData.evEbitda === 'N/A' ? 'N/A' : `${stockData.evEbitda}x`, tooltip: 'Enterprise Value to EBITDA — used for acquisition valuation' },
-                  { label: 'Div. Yield', value: stockData.dividendYield !== undefined ? `${stockData.dividendYield}%` : 'N/A', tooltip: 'Annual dividend as % of stock price' },
-                  { label: 'Beta', value: stockData.beta ?? 'N/A', tooltip: 'Volatility vs Nifty 50 — >1 means more volatile than market' },
-                  { label: 'EPS (TTM)', value: stockData.eps !== 'N/A' ? `₹${stockData.eps}` : 'N/A', tooltip: 'Earnings Per Share — net profit divided by total shares' },
-                  { label: '52W High', value: stockData.high52w ? `₹${stockData.high52w.toLocaleString('en-IN')}` : 'N/A', tooltip: '52-week highest traded price' },
-                  { label: '52W Low', value: stockData.low52w ? `₹${stockData.low52w.toLocaleString('en-IN')}` : 'N/A', tooltip: '52-week lowest traded price' },
-                  { label: 'Market Cap', value: stockData.marketCapCr ? formatMarketCap(stockData.marketCapCr) : 'N/A', tooltip: 'Total market capitalization of the company' },
-                  { label: 'Prev Close', value: stockData.prevClose ? `₹${stockData.prevClose.toLocaleString('en-IN')}` : 'N/A', tooltip: 'Previous trading day closing price' },
-                ].map((item) => (
-                  <MetricCard key={item.label} label={item.label} value={item.value} tooltip={item.tooltip} />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Day stats (live only) */}
-          {isLive && (
-            <div
-              className="rounded-xl p-4"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e' }}
-            >
-              <h3 className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Today's Trading</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  { label: 'Open', value: stockData.open ? `₹${stockData.open.toLocaleString('en-IN')}` : 'N/A' },
-                  { label: 'Day High', value: stockData.dayHigh ? `₹${stockData.dayHigh.toLocaleString('en-IN')}` : 'N/A' },
-                  { label: 'Day Low', value: stockData.dayLow ? `₹${stockData.dayLow.toLocaleString('en-IN')}` : 'N/A' },
-                  { label: 'Prev Close', value: stockData.prevClose ? `₹${stockData.prevClose.toLocaleString('en-IN')}` : 'N/A' },
-                ].map((item) => (
-                  <div key={item.label}>
-                    <div className="text-xs mb-1" style={{ color: '#64748b' }}>{item.label}</div>
-                    <div className="text-sm font-semibold" style={{ color: '#e2e8f0' }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 20+ Financial Ratios Table */}
-          {(() => {
-
-            const tabs = ['Valuation', 'Profitability', 'Leverage', 'Liquidity', 'Efficiency', 'Growth'];
-            const sd = stockData;
-            const fmt = (v, suffix='', prefix='') => (v === 'N/A' || v === undefined || v === null) ? 'N/A' : `${prefix}${v}${suffix}`;
-            const rev = sd.revenue ? sd.revenue / 100 : null;
-            const np = sd.netProfit ? sd.netProfit / 100 : null;
-            const nmVal = sd.netMargin != null && sd.netMargin !== 'N/A' ? `${sd.netMargin}%` : (rev && np ? `${(np/rev*100).toFixed(1)}%` : 'N/A');
-            const ratioData = {
-              Valuation: [
-                { label: 'P/E Ratio', value: fmt(sd.pe,'x'), desc: 'Price to Earnings' },
-                { label: 'P/B Ratio', value: fmt(sd.pb,'x'), desc: 'Price to Book Value' },
-                { label: 'EV/EBITDA', value: fmt(sd.evEbitda,'x'), desc: 'Enterprise Value to EBITDA' },
-                { label: 'Dividend Yield', value: fmt(sd.dividendYield,'%'), desc: 'Annual dividend / Price' },
-                { label: 'EPS (TTM)', value: sd.eps !== 'N/A' ? `₹${sd.eps}` : 'N/A', desc: 'Earnings per share' },
-                { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : 'N/A', desc: 'Net asset value per share' },
-                { label: 'Market Cap', value: sd.marketCapCr ? (sd.marketCapCr > 100000 ? `₹${(sd.marketCapCr/100000).toFixed(1)}L Cr` : `₹${sd.marketCapCr.toLocaleString()} Cr`) : 'N/A', desc: 'Total market capitalisation' },
-                { label: '52W High', value: sd.high52w ? `₹${sd.high52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week highest price' },
-                { label: '52W Low', value: sd.low52w ? `₹${sd.low52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week lowest price' },
-              ],
-              Profitability: [
-                { label: 'EBITDA Margin', value: fmt(sd.ebitdaMargin,'%'), desc: 'EBITDA as % of revenue' },
-                { label: 'Net Margin', value: nmVal, desc: 'Net profit / Revenue' },
-                { label: 'ROE', value: fmt(sd.roe,'%'), desc: 'Return on Equity' },
-                { label: 'ROCE', value: sd.roce != null && sd.roce !== 'N/A' ? `${sd.roce}%` : 'N/A', desc: 'Return on Capital Employed' },
-                { label: 'Revenue (TTM)', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months revenue' },
-                { label: 'Net Profit (TTM)', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months net profit' },
-                { label: 'Beta', value: fmt(sd.beta), desc: 'Volatility vs Nifty 50' },
-              ],
-              Leverage: [
-                { label: 'Debt / Equity', value: fmt(sd.debtEquity,'x'), desc: 'Total debt / Shareholders equity' },
-                { label: 'P/B Ratio', value: fmt(sd.pb,'x'), desc: 'Market price vs book value per share' },
-                { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : 'N/A', desc: 'Net asset value per share' },
-                { label: 'Interest Coverage', value: 'N/A', desc: 'EBIT / Interest expense' },
-                { label: 'Net Debt/EBITDA', value: 'N/A', desc: 'Net debt / EBITDA — leverage measure' },
-              ],
-              Liquidity: [
-                { label: 'Current Ratio', value: fmt(sd.currentRatio,'x'), desc: 'Current assets / Current liabilities' },
-                { label: 'Quick Ratio', value: 'N/A', desc: '(Current assets - Inventory) / Current liabilities' },
-                { label: 'Cash Ratio', value: 'N/A', desc: 'Cash / Current liabilities' },
-              ],
-              Efficiency: [
-                { label: 'Asset Turnover', value: 'N/A', desc: 'Revenue / Total assets' },
-                { label: 'Inventory Days', value: 'N/A', desc: 'Days of inventory held' },
-                { label: 'Receivables Days', value: 'N/A', desc: 'Days to collect receivables' },
-              ],
-              Growth: [
-                { label: 'Revenue TTM', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing 12M revenue' },
-                { label: 'Net Profit TTM', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing 12M net profit' },
-                { label: 'EPS Growth YoY', value: 'N/A', desc: 'Year-over-year EPS change' },
-              ],
-            };
-            const rows = ratioData[ratioTab] || [];
-            return (
-              <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                <div className="px-5 pt-4 pb-0">
-                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>📋 Financial Ratios (20+)</div>
-                  <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: '#1e1e2e', scrollbarWidth: 'none' }}>
-                    {tabs.map(t => (
-                      <button key={t} onClick={() => setRatioTab(t)}
-                        className="px-3 py-1.5 text-xs font-medium rounded-t-md transition-all"
-                        style={{ background: ratioTab===t ? '#1e1e2e' : 'transparent', color: ratioTab===t ? '#60a5fa' : '#475569',
-                          borderBottom: ratioTab===t ? '2px solid #3b82f6' : '2px solid transparent' }}>
-                        {t}
-                      </button>
+                {/* Valuation metrics grid */}
+                <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                  <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Valuation Metrics</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'P/E Ratio', value: stockData.pe !== 'N/A' ? `${stockData.pe}x` : '—', tooltip: 'Price to Earnings' },
+                      { label: 'P/B Ratio', value: stockData.pb !== 'N/A' ? `${stockData.pb}x` : '—', tooltip: 'Price to Book' },
+                      { label: 'EV/EBITDA', value: stockData.evEbitda !== 'N/A' ? `${stockData.evEbitda}x` : '—', tooltip: 'Enterprise Value / EBITDA' },
+                      { label: 'Div. Yield', value: stockData.dividendYield != null ? `${stockData.dividendYield}%` : '—', tooltip: 'Annual dividend / Price' },
+                      { label: 'Market Cap', value: stockData.marketCapCr ? formatMarketCap(stockData.marketCapCr) : '—', tooltip: 'Total market cap' },
+                      { label: 'Beta', value: stockData.beta !== 'N/A' && stockData.beta != null ? `${stockData.beta}` : '—', tooltip: 'Volatility vs Nifty 50' },
+                    ].map(item => (
+                      <MetricCard key={item.label} label={item.label} value={item.value} tooltip={item.tooltip} />
                     ))}
                   </div>
                 </div>
-                <div className="p-5 grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {rows.map((r,i) => (
-                    <div key={i} className="rounded-lg p-3" style={{ background: '#0d0d15', border: '1px solid #1a1a2a' }}>
-                      <div className="text-xs mb-1" style={{ color: '#475569' }} title={r.desc}>{r.label}</div>
-                      <div className="text-sm font-bold" style={{ color: r.value==='N/A' ? '#334155' : '#e2e8f0' }}>{r.value}</div>
+              </div>
+            )}
+
+            {/* ── RATIOS TAB ── */}
+            {activeTab === 'Ratios' && (() => {
+              const rTabs = ['Valuation', 'Profitability', 'Leverage', 'Liquidity'];
+              const sd = stockData;
+              const fmtR = (v, suffix='', prefix='') => (v === 'N/A' || v === undefined || v === null) ? '—' : `${prefix}${v}${suffix}`;
+              const rev = sd.revenue ? sd.revenue / 100 : null;
+              const np = sd.netProfit ? sd.netProfit / 100 : null;
+              const nmVal = sd.netMargin != null && sd.netMargin !== 'N/A' ? `${sd.netMargin}%` : (rev && np ? `${(np/rev*100).toFixed(1)}%` : '—');
+              const rData = {
+                Valuation: [
+                  { label: 'P/E Ratio', value: fmtR(sd.pe,'x'), desc: 'Price to Earnings' },
+                  { label: 'P/B Ratio', value: fmtR(sd.pb,'x'), desc: 'Price to Book Value' },
+                  { label: 'EV/EBITDA', value: fmtR(sd.evEbitda,'x'), desc: 'Enterprise Value to EBITDA' },
+                  { label: 'Div. Yield', value: fmtR(sd.dividendYield,'%'), desc: 'Annual dividend / Price' },
+                  { label: 'EPS (TTM)', value: sd.eps !== 'N/A' ? `₹${sd.eps}` : '—', desc: 'Earnings per share' },
+                  { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : '—', desc: 'Net asset value per share' },
+                  { label: 'Market Cap', value: sd.marketCapCr ? (sd.marketCapCr > 100000 ? `₹${(sd.marketCapCr/100000).toFixed(1)}L Cr` : `₹${sd.marketCapCr.toLocaleString()} Cr`) : '—', desc: 'Total market cap' },
+                  { label: '52W High', value: sd.high52w ? `₹${sd.high52w.toLocaleString('en-IN')}` : '—', desc: '52-week high' },
+                  { label: '52W Low', value: sd.low52w ? `₹${sd.low52w.toLocaleString('en-IN')}` : '—', desc: '52-week low' },
+                ],
+                Profitability: [
+                  { label: 'EBITDA Margin', value: fmtR(sd.ebitdaMargin,'%'), desc: 'EBITDA as % of revenue' },
+                  { label: 'Net Margin', value: nmVal, desc: 'Net profit / Revenue' },
+                  { label: 'ROE', value: fmtR(sd.roe,'%'), desc: 'Return on Equity' },
+                  { label: 'ROCE', value: sd.roce != null && sd.roce !== 'N/A' ? `${sd.roce}%` : '—', desc: 'Return on Capital Employed' },
+                  { label: 'Revenue TTM', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : '—', desc: 'TTM revenue' },
+                  { label: 'Net Profit TTM', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : '—', desc: 'TTM net profit' },
+                  { label: 'Beta', value: fmtR(sd.beta), desc: 'Volatility vs Nifty 50' },
+                ],
+                Leverage: [
+                  { label: 'Debt / Equity', value: fmtR(sd.debtEquity,'x'), desc: 'Total debt / Equity' },
+                  { label: 'P/B Ratio', value: fmtR(sd.pb,'x'), desc: 'Market price vs book value' },
+                  { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : '—', desc: 'Net asset value per share' },
+                  { label: 'Interest Coverage', value: '—', desc: 'EBIT / Interest expense' },
+                  { label: 'Net Debt/EBITDA', value: '—', desc: 'Net debt / EBITDA' },
+                ],
+                Liquidity: [
+                  { label: 'Current Ratio', value: fmtR(sd.currentRatio,'x'), desc: 'Current assets / liabilities' },
+                  { label: 'Quick Ratio', value: '—', desc: '(Current assets - Inventory) / liabilities' },
+                  { label: 'Cash Ratio', value: '—', desc: 'Cash / Current liabilities' },
+                ],
+              };
+              const rows = rData[ratioTab] || rData['Valuation'];
+              return (
+                <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                  <div className="px-4 pt-4 pb-0">
+                    <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Financial Ratios</div>
+                    <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: '#1a1a2a', scrollbarWidth: 'none' }}>
+                      {rTabs.map(t => (
+                        <button key={t} onClick={() => setRatioTab(t)}
+                          style={{
+                            flex: 1, minHeight: 36, padding: '8px 6px', fontSize: 11, fontWeight: ratioTab === t ? 600 : 400,
+                            color: ratioTab === t ? '#60a5fa' : '#475569', background: 'transparent', border: 'none', cursor: 'pointer',
+                            borderBottom: ratioTab === t ? '2px solid #3b82f6' : '2px solid transparent', whiteSpace: 'nowrap',
+                          }}>
+                          {t}
+                        </button>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                  <div className="p-4 grid grid-cols-2 gap-2.5">
+                    {rows.map((r, i) => (
+                      <div key={i} className="rounded-lg p-3" style={{ background: '#0d0d15', border: '1px solid #1a1a2a' }}>
+                        <div className="text-xs mb-1" style={{ color: '#475569' }} title={r.desc}>{r.label}</div>
+                        <div className="text-sm font-bold" style={{ color: r.value === '—' ? '#2d3748' : '#e2e8f0' }}>{r.value}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
-          {/* M&A / Corporate Actions — only show if live news available */}
-          {liveNews && liveNews.length > 0 && (() => {
-            const maKeywords = ['acqui', 'merger', 'buyback', 'fundrais', 'allotment', 'dividend', 'bonus', 'split', 'stake', 'deal', 'bid', 'takeover'];
-            const maNews = liveNews.filter(n =>
-              maKeywords.some(k => (n.title || '').toLowerCase().includes(k))
-            ).slice(0, 4);
-            if (maNews.length === 0) return null;
-            return (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🤝 M&A & Corporate Actions</h3>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.2)' }}>Live</span>
+            {/* ── NEWS TAB ── */}
+            {activeTab === 'News' && (() => {
+              const maKeywords = ['acqui', 'merger', 'buyback', 'fundrais', 'dividend', 'bonus', 'split', 'stake', 'deal', 'takeover'];
+              const maNews = liveNews ? liveNews.filter(n => maKeywords.some(k => (n.title || '').toLowerCase().includes(k))).slice(0, 3) : [];
+
+              const generatedNews = generateStockNews(stockData.name, stockData.sector).map(n => ({
+                ...n, url: `https://news.google.com/search?q=${encodeURIComponent(stockData.name + ' ' + (n.title || '').split(' ').slice(0, 4).join(' '))}`,
+              }));
+              const rawNews = liveNews && liveNews.length > 0 ? liveNews : generatedNews;
+              const seen = new Set();
+              const news = rawNews.filter(n => {
+                const key = (n.title || '').toLowerCase().slice(0, 60);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+              const isLiveNews = liveNews && liveNews.length > 0;
+
+              const NewsCard = ({ n }) => {
+                const url = n.url || n.link || '#';
+                const isExt = url && url !== '#';
+                const El = isExt ? 'a' : 'div';
+                return (
+                  <El href={isExt ? url : undefined} target={isExt ? '_blank' : undefined} rel="noopener noreferrer"
+                    className="block rounded-xl p-3 card-hover"
+                    style={{ background: '#12121a', border: '1px solid #1e1e2e', textDecoration: 'none' }}>
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      {n.category && (
+                        <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa' }}>
+                          {n.category}
+                        </span>
+                      )}
+                      {isExt && <span className="text-xs flex-shrink-0" style={{ color: '#334155' }}>↗</span>}
+                    </div>
+                    <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>{n.title}</div>
+                    <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
+                      <span style={{ color: '#64748b' }}>{n.source}</span>
+                      <span>{n.time || n.publishedAt || ''}</span>
+                    </div>
+                  </El>
+                );
+              };
+
+              return (
+                <div className="space-y-4">
+                  {/* M&A section */}
+                  {maNews.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold" style={{ color: '#f1f5f9' }}>Corporate Actions</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>Live</span>
+                      </div>
+                      <div className="space-y-2">
+                        {maNews.map((n, i) => <NewsCard key={i} n={n} />)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Latest news */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold" style={{ color: '#f1f5f9' }}>Latest News</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                        background: isLiveNews ? 'rgba(34,197,94,0.1)' : '#1e1e2e',
+                        color: isLiveNews ? '#22c55e' : '#64748b',
+                      }}>
+                        {isLiveNews ? `● Live · ${news.length}` : `${news.length} articles`}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {news.slice(0, 8).map((n, i) => <NewsCard key={i} n={n} />)}
+                    </div>
+                  </div>
                 </div>
-                <div className="news-carousel pb-2">
-                  {maNews.map((n,i) => {
-                    const url = n.url || n.link || '#';
-                    const isExternal = url && url !== '#';
-                    return (
-                      <a key={i} href={isExternal ? url : undefined} target={isExternal ? '_blank' : undefined}
-                        rel="noopener noreferrer"
-                        className="news-carousel-item rounded-xl p-4 card-hover block"
-                        style={{ background: '#12121a', border: '1px solid #1e1e2e', textDecoration: 'none', cursor: isExternal ? 'pointer' : 'default' }}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs px-1.5 py-0.5 rounded font-medium"
-                            style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
-                            {n.category || 'Corporate'}
-                          </span>
-                          {isExternal && <span className="text-xs" style={{ color: '#334155' }}>↗</span>}
-                        </div>
-                        <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>{n.title}</div>
-                        <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
-                          <span style={{ color: '#64748b' }}>{n.source}</span>
-                          <span>{n.time || ''}</span>
-                        </div>
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
-          {/* Company News */}
-          {(() => {
-            // Live news preferred; fallback to generated news with Google News search URLs
-            const generatedNews = generateStockNews(stockData.name, stockData.sector).map(n => ({
-              ...n,
-              url: `https://news.google.com/search?q=${encodeURIComponent(stockData.name + ' ' + (n.title || '').split(' ').slice(0,4).join(' '))}`,
-            }));
-            const rawNews = liveNews && liveNews.length > 0 ? liveNews : generatedNews;
+            {/* Tab indicator dots */}
+            <div className="flex justify-center gap-2 pt-2 pb-4">
+              {TABS.map(t => (
+                <button key={t} onClick={() => setActiveTab(t)}
+                  style={{
+                    width: activeTab === t ? 20 : 6, height: 6, borderRadius: 3,
+                    background: activeTab === t ? '#3b82f6' : '#1e1e2e',
+                    border: 'none', cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }} />
+              ))}
+            </div>
 
-            // Deduplicate by title prefix + url
-            const seen = new Set();
-            const news = rawNews.filter(n => {
-              const key = (n.title || '').toLowerCase().slice(0, 60);
-              const urlKey = n.url || n.link || '';
-              if (seen.has(key)) return false;
-              seen.add(key);
-              if (urlKey && urlKey !== '#') seen.add(urlKey);
-              return true;
-            });
-
-            const isLiveNews = liveNews && liveNews.length > 0;
-
-            return (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
-                    Latest News — {stockData.name}
-                  </h3>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{
-                    background: isLiveNews ? 'rgba(34,197,94,0.1)' : '#1e1e2e',
-                    color: isLiveNews ? '#22c55e' : '#64748b',
-                  }}>
-                    {isLiveNews ? `● Live · ${news.length}` : `${news.length} articles`}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {news.slice(0, 6).map((n, i) => {
-                    const url = n.url || n.link || '#';
-                    const isExternal = url && url !== '#';
-                    const CardEl = isExternal ? 'a' : 'div';
-                    const extraProps = isExternal
-                      ? { href: url, target: '_blank', rel: 'noopener noreferrer' }
-                      : {};
-                    return (
-                      <CardEl
-                        key={i}
-                        {...extraProps}
-                        className="rounded-xl p-4 card-hover block"
-                        style={{
-                          background: '#12121a',
-                          border: '1px solid #1e1e2e',
-                          textDecoration: 'none',
-                          cursor: isExternal ? 'pointer' : 'default',
-                        }}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          {n.category && (
-                            <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{
-                              background: 'rgba(59,130,246,0.12)',
-                              color: '#60a5fa',
-                              border: '1px solid rgba(59,130,246,0.2)',
-                            }}>
-                              {n.category}
-                            </span>
-                          )}
-                          {isExternal && <span className="text-xs" style={{ color: '#334155' }}>↗</span>}
-                        </div>
-                        <div className="text-xs font-medium mb-2 leading-snug" style={{ color: '#e2e8f0' }}>
-                          {n.title}
-                        </div>
-                        <div className="flex justify-between text-xs" style={{ color: '#475569' }}>
-                          <span className="font-medium" style={{ color: '#64748b' }}>{n.source}</span>
-                          <span>{n.time || n.publishedAt || ''}</span>
-                        </div>
-                      </CardEl>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-
-          <div className="h-6" />
+          </div>
         </div>
       )}
     </div>
