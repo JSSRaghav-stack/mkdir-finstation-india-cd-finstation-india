@@ -73,62 +73,75 @@ export default function CompanyIntel() {
 
   function computeScore(sd) {
     if (!sd) return null;
+
+    const pe  = parseFloat(sd.pe);
+    const roe = parseFloat(sd.roe);
+    const de  = parseFloat(sd.debtEquity);
+    const div = parseFloat(sd.dividendYield);
+    const roce = parseFloat(sd.roce);
+
+    // Need at least 2 real data points to show a meaningful score
+    const dataPoints = [pe, roe, de].filter(v => !isNaN(v)).length;
+    if (dataPoints < 2) return null;
+
     let score = 5;
     const reasons = [];
     const flags = [];
 
-    // PE scoring
-    const pe = parseFloat(sd.pe);
     if (!isNaN(pe)) {
-      if (pe < 20) { score += 1; reasons.push('Attractive valuation (P/E < 20)'); }
-      else if (pe > 50) { score -= 1; flags.push('Expensive valuation (P/E > 50)'); }
+      if (pe < 15)       { score += 1.5; reasons.push(`Low P/E of ${pe}x — value buy territory`); }
+      else if (pe < 25)  { score += 0.5; reasons.push(`Reasonable P/E of ${pe}x`); }
+      else if (pe > 60)  { score -= 1.5; flags.push(`Very high P/E of ${pe}x — priced for perfection`); }
+      else if (pe > 35)  { score -= 0.5; flags.push(`Elevated P/E of ${pe}x`); }
     }
-    // ROE scoring
-    const roe = parseFloat(sd.roe);
     if (!isNaN(roe)) {
-      if (roe > 20) { score += 1; reasons.push('Strong ROE > 20%'); }
-      else if (roe < 8) { score -= 1; flags.push('Weak ROE < 8%'); }
+      if (roe > 25)      { score += 1.5; reasons.push(`Excellent ROE of ${roe}% — strong capital efficiency`); }
+      else if (roe > 15) { score += 0.5; reasons.push(`Good ROE of ${roe}%`); }
+      else if (roe < 8)  { score -= 1;   flags.push(`Weak ROE of ${roe}% — poor capital efficiency`); }
     }
-    // Debt scoring
-    const de = parseFloat(sd.debtEquity);
+    if (!isNaN(roce) && !isNaN(roe)) {
+      if (roce > roe)    { reasons.push(`ROCE (${roce}%) > ROE (${roe}%) — efficient capital use`); }
+    }
     if (!isNaN(de)) {
-      if (de < 0.5) { score += 1; reasons.push('Low debt (D/E < 0.5)'); }
-      else if (de > 2) { score -= 1; flags.push('High debt (D/E > 2)'); }
+      if (de < 0.3)      { score += 1;   reasons.push(`Debt-free / near debt-free (D/E ${de}x)`); }
+      else if (de < 1)   { score += 0.5; reasons.push(`Manageable debt (D/E ${de}x)`); }
+      else if (de > 3)   { score -= 1.5; flags.push(`High debt burden (D/E ${de}x)`); }
+      else if (de > 1.5) { score -= 0.5; flags.push(`Moderately leveraged (D/E ${de}x)`); }
     }
-    // Dividend
-    const div = parseFloat(sd.dividendYield);
-    if (!isNaN(div) && div > 2) { score += 0.5; reasons.push(`Decent dividend yield ${div}%`); }
+    if (!isNaN(div) && div > 2) {
+      score += 0.5; reasons.push(`Dividend yield of ${div}% — income for investors`);
+    }
 
     score = Math.min(10, Math.max(1, Math.round(score * 10) / 10));
 
     let recommendation, recColor, recBg;
-    if (score >= 7) { recommendation = 'BUY'; recColor = '#22c55e'; recBg = 'rgba(34,197,94,0.1)'; }
-    else if (score >= 5) { recommendation = 'HOLD'; recColor = '#f59e0b'; recBg = 'rgba(245,158,11,0.1)'; }
-    else { recommendation = 'SELL'; recColor = '#ef4444'; recBg = 'rgba(239,68,68,0.1)'; }
+    if (score >= 7.5)     { recommendation = 'STRONG BUY'; recColor = '#22c55e'; recBg = 'rgba(34,197,94,0.12)'; }
+    else if (score >= 6)  { recommendation = 'BUY';        recColor = '#4ade80'; recBg = 'rgba(74,222,128,0.10)'; }
+    else if (score >= 4.5){ recommendation = 'HOLD';       recColor = '#f59e0b'; recBg = 'rgba(245,158,11,0.10)'; }
+    else if (score >= 3)  { recommendation = 'REDUCE';     recColor = '#fb923c'; recBg = 'rgba(251,146,60,0.10)'; }
+    else                  { recommendation = 'SELL';        recColor = '#ef4444'; recBg = 'rgba(239,68,68,0.10)'; }
 
-    const allReasons = [...reasons, ...flags].slice(0, 3);
-    if (allReasons.length === 0) allReasons.push('Limited data available for scoring');
+    const allReasons = [...reasons, ...flags].slice(0, 4);
 
-    const rev = sd.revenue ? Math.round(sd.revenue / 100).toLocaleString('en-IN') : 'N/A';
-    const np = sd.netProfit ? Math.round(sd.netProfit / 100).toLocaleString('en-IN') : 'N/A';
-    const report = `${sd.name} is a ${sd.sector || 'diversified'} company. Revenue (TTM): ₹${rev} Cr. Net Profit: ₹${np} Cr. P/E ratio is ${sd.pe !== 'N/A' ? sd.pe + 'x' : 'not available'}. ${roe > 15 ? 'Strong profitability with ROE of ' + roe + '%.' : ''} ${de < 1 ? 'Balance sheet is healthy with low debt.' : de > 2 ? 'Company carries significant debt.' : ''} Overall score: ${score}/10 — ${recommendation}.`;
+    // Build report text only from available data
+    const parts = [`${sd.name} is a ${sd.sector || 'diversified'} company.`];
+    if (sd.revenue > 0) parts.push(`Revenue (TTM): ₹${Math.round(sd.revenue / 100).toLocaleString('en-IN')} Cr.`);
+    if (sd.netProfit > 0) parts.push(`Net Profit: ₹${Math.round(sd.netProfit / 100).toLocaleString('en-IN')} Cr.`);
+    if (!isNaN(pe))  parts.push(`P/E: ${pe}x.`);
+    if (!isNaN(roe)) parts.push(`ROE: ${roe}%.`);
+    if (!isNaN(de))  parts.push(de < 1 ? 'Balance sheet is healthy with low debt.' : de > 2 ? 'Company carries significant debt.' : '');
+    parts.push(`Score: ${score}/10 — ${recommendation}.`);
+    const report = parts.filter(Boolean).join(' ');
 
     return { score, recommendation, recColor, recBg, reasons: allReasons, report };
   }
 
-  function getPeerComps(stockData, allStocks) {
+  function getPeerNames(stockData, allStocks) {
     if (!stockData || !allStocks) return [];
-    const sector = stockData.sector;
     return allStocks
-      .filter(s => s.sector === sector && s.ticker !== stockData.ticker)
-      .slice(0, 4)
-      .map(s => ({
-        name: s.name,
-        ticker: s.ticker,
-        pe: (Math.random() * 40 + 5).toFixed(1),
-        pb: (Math.random() * 5 + 0.5).toFixed(1),
-        roe: (Math.random() * 25 + 5).toFixed(1),
-      }));
+      .filter(s => s.sector === stockData.sector && s.ticker !== stockData.ticker)
+      .slice(0, 5)
+      .map(s => ({ name: s.name, ticker: s.ticker }));
   }
 
   const localFiltered = STOCK_LIST.filter(
@@ -405,27 +418,39 @@ export default function CompanyIntel() {
           {/* Compact header — always visible */}
           <div className="px-4 md:px-6 pt-3 pb-3" style={{ background: '#0d0d15' }}>
             {/* Name row */}
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h2 className="text-base font-bold leading-tight" style={{ color: '#f1f5f9' }}>{stockData.name}</h2>
-              <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
-                {stockData.ticker?.replace('.NS', '')}
-              </span>
-              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#1e1e2e', color: '#64748b' }}>{stockData.sector}</span>
-              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: isLive ? 'rgba(34,197,94,0.08)' : 'rgba(100,116,139,0.08)', color: isLive ? '#4ade80' : '#64748b' }}>
-                {isLive ? '● Live' : '● Mock'}
-              </span>
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold leading-tight" style={{ color: '#f1f5f9' }}>{stockData.name}</h2>
+                <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
+                  {stockData.ticker?.replace('.NS', '').replace('.BO', '')}
+                </span>
+                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#1e1e2e', color: '#64748b' }}>{stockData.sector}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: isLive ? 'rgba(34,197,94,0.08)' : 'rgba(100,116,139,0.08)', color: isLive ? '#4ade80' : '#64748b' }}>
+                  {isLive ? '● Live' : '● Cached'}
+                </span>
+              </div>
+              {/* Screener.in link */}
+              <a href={`https://www.screener.in/company/${stockData.ticker?.replace(/\.(NS|BO)$/i, '')}/`}
+                target="_blank" rel="noopener noreferrer"
+                style={{ flexShrink: 0, fontSize: 11, padding: '4px 8px', borderRadius: 6, background: '#1e1e2e', color: '#60a5fa', textDecoration: 'none', border: '1px solid #2d2d45', whiteSpace: 'nowrap' }}>
+                Screener ↗
+              </a>
             </div>
             {/* Price row */}
             <div className="flex items-baseline gap-3 mb-2">
-              <span className="text-2xl font-black" style={{ color: '#f1f5f9' }}>
-                ₹{(stockData.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-              {isLive && stockData.changePct !== undefined && (
+              {stockData.price > 0 ? (
+                <span className="text-2xl font-black" style={{ color: '#f1f5f9' }}>
+                  ₹{stockData.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              ) : (
+                <span className="text-lg font-semibold" style={{ color: '#475569' }}>Price unavailable</span>
+              )}
+              {stockData.price > 0 && isLive && stockData.changePct !== undefined && (
                 <span className="text-sm font-semibold" style={{ color: stockData.changePct >= 0 ? '#22c55e' : '#ef4444' }}>
                   {stockData.changePct >= 0 ? '+' : ''}{stockData.changePct.toFixed(2)}%
                 </span>
               )}
-              {isLive && stockData.change !== undefined && (
+              {stockData.price > 0 && isLive && stockData.change !== undefined && (
                 <span className="text-xs" style={{ color: '#475569' }}>
                   {stockData.change >= 0 ? '+' : ''}₹{Math.abs(stockData.change).toFixed(2)} today
                 </span>
@@ -487,7 +512,7 @@ export default function CompanyIntel() {
             {/* ── OVERVIEW TAB ── */}
             {activeTab === 'Overview' && (() => {
               const analysis = computeScore(stockData);
-              const peers = getPeerComps(stockData, STOCK_LIST);
+              const peers = getPeerNames(stockData, STOCK_LIST);
               return (
                 <div className="space-y-4">
                   {/* Price chart */}
@@ -534,12 +559,12 @@ export default function CompanyIntel() {
                   )}
 
                   {/* Score + recommendation */}
-                  {analysis && (
+                  {analysis ? (
                     <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
                           <div className="text-center">
-                            <div className="text-2xl font-black" style={{ color: analysis.score >= 7 ? '#22c55e' : analysis.score >= 5 ? '#f59e0b' : '#ef4444' }}>
+                            <div className="text-2xl font-black" style={{ color: analysis.recColor }}>
                               {analysis.score}<span className="text-sm font-normal" style={{ color: '#475569' }}>/10</span>
                             </div>
                             <div className="text-xs" style={{ color: '#64748b' }}>Score</div>
@@ -558,16 +583,32 @@ export default function CompanyIntel() {
                       </div>
                       <p className="text-xs leading-relaxed mb-3" style={{ color: '#94a3b8' }}>{analysis.report}</p>
                       <div className="space-y-1.5">
-                        {analysis.reasons.map((r, i) => (
-                          <div key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94a3b8' }}>
-                            <span style={{ color: r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '#ef4444' : '#22c55e', flexShrink: 0 }}>
-                              {r.includes('weak') || r.includes('High') || r.includes('Expensive') ? '⚠' : '✓'}
-                            </span>
-                            <span>{r}</span>
-                          </div>
-                        ))}
+                        {analysis.reasons.map((r, i) => {
+                          const isFlag = r.toLowerCase().includes('high') || r.toLowerCase().includes('weak') || r.toLowerCase().includes('expensive') || r.toLowerCase().includes('leverage') || r.toLowerCase().includes('poor') || r.toLowerCase().includes('burden') || r.toLowerCase().includes('perfection');
+                          return (
+                            <div key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94a3b8' }}>
+                              <span style={{ color: isFlag ? '#f59e0b' : '#22c55e', flexShrink: 0 }}>{isFlag ? '⚠' : '✓'}</span>
+                              <span>{r}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="mt-3 text-xs" style={{ color: '#334155' }}>⚠ Not financial advice. Do your own research.</div>
+                      <div className="mt-3 text-xs" style={{ color: '#334155' }}>Not financial advice. Do your own research before investing.</div>
+                    </div>
+                  ) : (
+                    /* No data — guide user to Screener */
+                    <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="text-sm font-semibold mb-2" style={{ color: '#94a3b8' }}>Insufficient data for scoring</div>
+                      <p className="text-xs mb-3" style={{ color: '#475569' }}>
+                        Live price data is unavailable for this stock. View complete financials on Screener.in for accurate analysis.
+                      </p>
+                      <a href={`https://www.screener.in/company/${stockData.ticker?.replace(/\.(NS|BO)$/i, '')}/`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                          background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)',
+                          textDecoration: 'none' }}>
+                        View on Screener.in ↗
+                      </a>
                     </div>
                   )}
 
@@ -591,39 +632,23 @@ export default function CompanyIntel() {
                     </div>
                   )}
 
-                  {/* Peer comparison */}
+                  {/* Sector peers */}
                   {peers.length > 0 && (
-                    <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-                      <div className="px-4 py-3 text-sm font-semibold" style={{ color: '#f1f5f9', borderBottom: '1px solid #1a1a2a' }}>
-                        Peer Comparison — {stockData.sector}
+                    <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                      <div className="text-sm font-semibold mb-3" style={{ color: '#f1f5f9' }}>Sector Peers — {stockData.sector}</div>
+                      <div className="space-y-1">
+                        {peers.map((p, i) => (
+                          <div key={i} className="flex items-center justify-between py-1.5" style={{ borderBottom: '1px solid #1a1a2a' }}>
+                            <span className="text-xs" style={{ color: '#94a3b8' }}>{p.name}</span>
+                            <a href={`https://www.screener.in/company/${p.ticker.replace(/\.(NS|BO)$/i, '')}/`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 10, color: '#3b82f6', textDecoration: 'none' }}>
+                              Screener ↗
+                            </a>
+                          </div>
+                        ))}
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid #1e1e2e' }}>
-                              {['Company', 'P/E', 'P/B', 'ROE %'].map(h => (
-                                <th key={h} className="px-3 py-2 text-left font-medium" style={{ color: '#475569' }}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr style={{ background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid #1e1e2e' }}>
-                              <td className="px-3 py-2 font-semibold" style={{ color: '#60a5fa' }}>{stockData.name} ★</td>
-                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.pe !== 'N/A' ? stockData.pe + 'x' : '—'}</td>
-                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.pb !== 'N/A' ? stockData.pb + 'x' : '—'}</td>
-                              <td className="px-3 py-2" style={{ color: '#e2e8f0' }}>{stockData.roe !== 'N/A' ? stockData.roe + '%' : '—'}</td>
-                            </tr>
-                            {peers.map((p, i) => (
-                              <tr key={i} style={{ borderBottom: '1px solid #1a1a2a' }}>
-                                <td className="px-3 py-2" style={{ color: '#94a3b8' }}>{p.name}</td>
-                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.pe}x</td>
-                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.pb}x</td>
-                                <td className="px-3 py-2" style={{ color: '#64748b' }}>{p.roe}%</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <div className="mt-2 text-xs" style={{ color: '#334155' }}>Compare live ratios on Screener.in</div>
                     </div>
                   )}
                 </div>
