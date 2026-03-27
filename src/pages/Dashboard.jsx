@@ -96,24 +96,26 @@ function GainersLosersTable({ stocks, type }) {
         <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '📈 Top Gainers' : '📉 Top Losers'}</span>
         <span className="text-xs px-2 py-0.5 rounded" style={{ background: type==='gainers' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: type==='gainers' ? '#22c55e' : '#ef4444' }}>Nifty 50</span>
       </div>
-      <table className="w-full">
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <table style={{ width: '100%', minWidth: 360 }}>
         <thead><tr style={{ borderBottom: '1px solid #1a1a2a' }}>
           {['Stock','Price','Change','Volume'].map(h => (
-            <th key={h} className="px-4 py-2 text-left text-xs font-medium" style={{ color: '#475569' }}>{h}</th>
+            <th key={h} className="px-4 py-2 text-left text-xs font-medium" style={{ color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
           ))}
         </tr></thead>
         <tbody>{stocks.map(s => (
           <tr key={s.ticker} className="transition-colors" style={{ borderBottom: '1px solid #12121a' }}
             onMouseEnter={e => (e.currentTarget.style.background = '#161622')}
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-            <td className="px-4 py-2"><div className="text-sm font-medium" style={{ color: '#e2e8f0' }}>{s.name}</div>
+            <td className="px-4 py-2" style={{ whiteSpace: 'nowrap' }}><div className="text-sm font-medium" style={{ color: '#e2e8f0' }}>{s.name}</div>
               <div className="text-xs" style={{ color: '#475569' }}>{s.ticker.replace('.NS','')}</div></td>
-            <td className="px-4 py-2 text-sm font-medium" style={{ color: '#f1f5f9' }}>₹{(s.price||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-            <td className="px-4 py-2"><span className="text-sm font-semibold" style={{ color: s.change>=0 ? '#22c55e' : '#ef4444' }}>{s.change>=0?'+':''}{(s.change||0).toFixed(2)}%</span></td>
-            <td className="px-4 py-2 text-xs" style={{ color: '#64748b' }}>{formatVolume(s.volume)}</td>
+            <td className="px-4 py-2 text-sm font-medium" style={{ color: '#f1f5f9', whiteSpace: 'nowrap' }}>₹{(s.price||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+            <td className="px-4 py-2" style={{ whiteSpace: 'nowrap' }}><span className="text-sm font-semibold" style={{ color: s.change>=0 ? '#22c55e' : '#ef4444' }}>{s.change>=0?'+':''}{(s.change||0).toFixed(2)}%</span></td>
+            <td className="px-4 py-2 text-xs" style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{formatVolume(s.volume)}</td>
           </tr>
         ))}</tbody>
       </table>
+      </div>
     </div>
   );
 }
