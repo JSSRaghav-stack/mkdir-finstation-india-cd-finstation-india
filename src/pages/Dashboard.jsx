@@ -91,13 +91,13 @@ function KPICard({ label, value, change, changeLabel, loading, onClick, symbol }
 
 function GainersLosersTable({ stocks, type }) {
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-      <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid #1e1e2e' }}>
+    <div className="rounded-xl" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+      <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid #1e1e2e', borderRadius: '12px 12px 0 0' }}>
         <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '📈 Top Gainers' : '📉 Top Losers'}</span>
         <span className="text-xs px-2 py-0.5 rounded" style={{ background: type==='gainers' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: type==='gainers' ? '#22c55e' : '#ef4444' }}>Nifty 50</span>
       </div>
-      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-      <table style={{ width: '100%', minWidth: 360 }}>
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', borderRadius: '0 0 12px 12px' }}>
+      <table style={{ width: '100%', minWidth: 400 }}>
         <thead><tr style={{ borderBottom: '1px solid #1a1a2a' }}>
           {['Stock','Price','Change','Volume'].map(h => (
             <th key={h} className="px-4 py-2 text-left text-xs font-medium" style={{ color: '#475569', whiteSpace: 'nowrap' }}>{h}</th>
@@ -239,25 +239,43 @@ export default function Dashboard() {
         }}>{isLive ? '● Live (10s refresh)' : '● Mock Data'}</span>
       </div>
 
-      <div className="grid grid-cols-2 md:flex gap-4 mb-5">
-        <KPICard label="Nifty 50" symbol="^NSEI"
-          value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
-          change={indices.nifty?.change??0}
-          changeLabel={`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`}
-          loading={loading} onClick={() => setChartModal({symbol:'^NSEI',label:'Nifty 50'})} />
-        <KPICard label="Sensex" symbol="^BSESN"
-          value={loading ? '—' : (indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
-          change={indices.sensex?.change??0}
-          changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
-          loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
-        <KPICard label="India VIX" symbol="^INDIAVIX"
-          value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
-          change={indices.vix?.change??0} loading={loading}
-          onClick={() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'})} />
-        <KPICard label="USD / INR" symbol="USDINR=X"
-          value={loading ? '—' : `₹${(indices.usdinr?.value??0).toFixed(2)}`}
-          change={indices.usdinr?.change??0} loading={loading}
-          onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />
+      {/* Horizontally scrollable KPI cards row on mobile */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }} className="mb-5">
+        <div className="flex gap-3" style={{ minWidth: 'max-content', paddingBottom: 4 }}>
+          <div style={{ minWidth: 140, flex: '0 0 auto' }}>
+            <KPICard label="Nifty 50" symbol="^NSEI"
+              value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
+              change={indices.nifty?.change??0}
+              changeLabel={`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`}
+              loading={loading} onClick={() => setChartModal({symbol:'^NSEI',label:'Nifty 50'})} />
+          </div>
+          <div style={{ minWidth: 140, flex: '0 0 auto' }}>
+            <KPICard label="Sensex" symbol="^BSESN"
+              value={loading ? '—' : (indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
+              change={indices.sensex?.change??0}
+              changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
+              loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
+          </div>
+          <div style={{ minWidth: 120, flex: '0 0 auto' }}>
+            <KPICard label="Gift Nifty" symbol={null}
+              value={loading ? '—' : (indices.giftNifty ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}) : 'N/A')}
+              change={indices.giftNifty?.change??0}
+              changeLabel={indices.giftNifty ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)` : ''}
+              loading={loading} />
+          </div>
+          <div style={{ minWidth: 110, flex: '0 0 auto' }}>
+            <KPICard label="India VIX" symbol="^INDIAVIX"
+              value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
+              change={indices.vix?.change??0} loading={loading}
+              onClick={() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'})} />
+          </div>
+          <div style={{ minWidth: 110, flex: '0 0 auto' }}>
+            <KPICard label="USD / INR" symbol="USDINR=X"
+              value={loading ? '—' : `₹${(indices.usdinr?.value??0).toFixed(2)}`}
+              change={indices.usdinr?.change??0} loading={loading}
+              onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">

@@ -57,13 +57,18 @@ export async function searchStocks(query) {
 }
 
 export async function fetchIndices() {
-  const quotes = await fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X');
+  // Fetch main indices + Gift Nifty in parallel
+  const [quotes, giftQuotes] = await Promise.all([
+    fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X'),
+    fetchQuote('NIFTY_GIFTNIFTY.NS').catch(() => null),
+  ]);
   if (!quotes) return null;
   const find = (sym) => quotes.find(q => q.symbol === sym);
   const nsei = find('^NSEI');
   const bsesn = find('^BSESN');
   const vix = find('^INDIAVIX');
   const usd = find('USDINR=X');
+  const gift = giftQuotes?.[0] || null;
 
   // Fix USD/INR — if value looks too small (< 10), it may be inverted (USD per INR)
   let usdinrValue = usd?.regularMarketPrice || 0;
@@ -76,6 +81,9 @@ export async function fetchIndices() {
     sensex: bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
     vix: vix ? { value: vix.regularMarketPrice, change: vix.regularMarketChangePercent, points: vix.regularMarketChange } : null,
     usdinr: usd ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
+    giftNifty: gift && gift.regularMarketPrice > 0
+      ? { value: gift.regularMarketPrice, change: gift.regularMarketChangePercent, points: gift.regularMarketChange }
+      : null,
   };
 }
 

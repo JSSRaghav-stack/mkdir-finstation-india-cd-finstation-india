@@ -818,6 +818,7 @@ export const MARKET_INDICES = {
   sensex: { value: 76482.30, change: 0.51, points: 389.40 },
   vix: { value: 13.87, change: -2.14, points: -0.30 },
   usdinr: { value: 86.42, change: 0.08, points: 0.07 },
+  giftNifty: null,
 };
 
 export const MOCK_NEWS = [
