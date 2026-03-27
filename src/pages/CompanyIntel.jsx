@@ -210,13 +210,32 @@ export default function CompanyIntel() {
       // fall through to mock
     }
 
-    // Fall back to mock data
+    // Fall back to mock data, or generate minimal stub so page never shows blank
     const mockD = DETAILED_STOCK_DATA[stock.ticker];
     if (mockD) {
       setStockData(mockD);
       setChartData(mockD.priceHistory || []);
     } else {
-      setStockData(null);
+      // Generate stub from STOCK_LIST info so something always renders
+      setStockData({
+        name: stock.name,
+        ticker: stock.ticker,
+        sector: stock.sector,
+        exchange: 'NSE',
+        price: 0,
+        marketCapCr: 0,
+        pe: 'N/A', pb: 'N/A', eps: 'N/A', beta: 'N/A',
+        high52w: 0, low52w: 0,
+        dividendYield: 0,
+        revenue: 0, netProfit: 0,
+        ebitdaMargin: 'N/A', roe: 'N/A',
+        debtEquity: 'N/A', currentRatio: 'N/A',
+        evEbitda: 'N/A',
+        changePct: 0, change: 0,
+        description: `${stock.name} is listed on NSE under the ${stock.sector} sector.`,
+        news: [],
+      });
+      setChartData([]);
     }
     setLoading(false);
   };
@@ -356,7 +375,7 @@ export default function CompanyIntel() {
             Data unavailable for {selected.name}
           </div>
           <div className="text-sm" style={{ color: '#475569' }}>
-            Live server may be offline. Try running <code style={{ color: '#60a5fa' }}>npm run server</code> for live data.
+            Unable to load data. Please try again.
           </div>
         </div>
       )}
