@@ -352,17 +352,83 @@ function relativeTime(dateStr) {
 }
 
 const INDIA_NEWS_FEEDS = [
-  { url: 'https://economictimes.indiatimes.com/markets/rss.cms',        source: 'Economic Times',   category: 'Markets'  },
-  { url: 'https://www.moneycontrol.com/rss/latestnews.xml',             source: 'Moneycontrol',     category: 'Markets'  },
-  { url: 'https://feeds.feedburner.com/NdtvProfit-LatestNews',          source: 'NDTV Profit',      category: 'Business' },
-  { url: 'https://www.livemint.com/rss/markets',                        source: 'LiveMint',         category: 'Markets'  },
-  { url: 'https://www.business-standard.com/rss/markets-106.rss',       source: 'Business Standard',category: 'Markets'  },
-  { url: 'https://www.thehindubusinessline.com/markets/?service=rss',   source: 'Hindu BusinessLine',category:'Macro'    },
+  { url: 'https://economictimes.indiatimes.com/markets/rss.cms',        source: 'Economic Times',    category: 'Markets'  },
+  { url: 'https://www.moneycontrol.com/rss/latestnews.xml',             source: 'Moneycontrol',      category: 'Markets'  },
+  { url: 'https://feeds.feedburner.com/NdtvProfit-LatestNews',          source: 'NDTV Profit',       category: 'Business' },
+  { url: 'https://www.livemint.com/rss/markets',                        source: 'LiveMint',          category: 'Markets'  },
+  { url: 'https://www.business-standard.com/rss/markets-106.rss',       source: 'Business Standard', category: 'Markets'  },
+  { url: 'https://www.thehindubusinessline.com/markets/?service=rss',   source: 'Hindu BusinessLine',category: 'Macro'    },
+  { url: 'https://economictimes.indiatimes.com/industry/rss.cms',       source: 'Economic Times',    category: 'Industry' },
+  { url: 'https://economictimes.indiatimes.com/news/company/corporate-trends/rssfeeds/2143429.cms', source: 'Economic Times', category: 'Corporate' },
+  { url: 'https://www.moneycontrol.com/rss/results.xml',                source: 'Moneycontrol',      category: 'Results'  },
+  { url: 'https://www.financialexpress.com/market/feed/',               source: 'Financial Express',  category: 'Markets'  },
 ];
+
+// Google News RSS search — free, no API key, returns company-specific real articles
+async function fetchGoogleNewsRSS(companyName, symbol) {
+  const queries = [
+    `${companyName} stock NSE`,
+    `${companyName} NSE India`,
+    symbol.replace(/\.(NS|BO)$/i, '') + ' NSE',
+  ];
+  const allItems = [];
+  for (const q of queries.slice(0, 2)) {
+    try {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
+      const res = await httpsGet(url, {
+        'User-Agent': 'Mozilla/5.0 (compatible; FinStation/1.0)',
+        'Accept': 'application/rss+xml, text/xml, */*',
+      }, 12000);
+      if (res.status !== 200) continue;
+      const items = parseRSS(res.data);
+      for (const item of items.slice(0, 10)) {
+        // Google News links are redirect URLs — extract real URL from it
+        const realLink = item.link?.includes('news.google.com') ? item.link : item.link;
+        allItems.push({
+          title: item.title,
+          source: extractSourceFromTitle(item.title) || 'Google News',
+          url: realLink || '#',
+          time: relativeTime(item.pubDate),
+          pubDate: item.pubDate,
+          category: 'Company',
+          summary: item.description || '',
+        });
+      }
+    } catch (e) {
+      // silent — try next query
+    }
+  }
+  // Deduplicate titles
+  const seen = new Set();
+  return allItems.filter(item => {
+    const k = item.title.toLowerCase().slice(0, 50);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, 12);
+}
+
+function extractSourceFromTitle(title) {
+  // Google News titles often end with " - Source Name"
+  const m = title.match(/ - ([^-]+)$/);
+  if (m) return m[1].trim();
+  return null;
+}
+
+// Filter general RSS items that mention the company name
+function filterRSSByCompany(items, companyName) {
+  const keywords = companyName.toLowerCase().split(' ')
+    .filter(w => w.length > 3 && !['limited', 'private', 'india', 'corp', 'corporation', 'industries', 'enterprise'].includes(w));
+  if (keywords.length === 0) return [];
+  return items.filter(item => {
+    const text = (item.title + ' ' + (item.summary || '')).toLowerCase();
+    return keywords.some(kw => text.includes(kw));
+  });
+}
 
 let indiaNewsCache = null;
 let indiaNewsFetchTime = 0;
-const INDIA_NEWS_TTL = 2 * 60 * 1000; // 2 minutes
+const INDIA_NEWS_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function fetchIndiaNewsFeed(feed) {
   try {
@@ -675,7 +741,7 @@ const server = createServer(async (req, res) => {
         return true;
       });
 
-      indiaNewsCache = deduped.slice(0, 18);
+      indiaNewsCache = deduped.slice(0, 40);
       indiaNewsFetchTime = Date.now();
 
       res.writeHead(200);
@@ -787,21 +853,47 @@ const server = createServer(async (req, res) => {
         }
       }
 
+      // ── Google News RSS search (free, no key, company-specific) ─────────
+      if (news.length < 4) {
+        try {
+          const googleNews = await fetchGoogleNewsRSS(company || symbol, symbol);
+          news = [...news, ...googleNews];
+        } catch (e) {
+          console.error('Google News RSS error:', e.message);
+        }
+      }
+
+      // ── Filter general RSS feeds by company name ──────────────────────
+      if (news.length < 4 && company) {
+        try {
+          const rssResults = await Promise.allSettled(INDIA_NEWS_FEEDS.slice(0, 6).map(fetchIndiaNewsFeed));
+          const allRSS = rssResults.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+          const matched = filterRSSByCompany(allRSS, company);
+          news = [...news, ...matched];
+        } catch (e) {
+          console.error('RSS company filter error:', e.message);
+        }
+      }
+
       // Deduplicate by title
       const seenTitles = new Set();
       const seenUrls = new Set();
       news = news.filter(item => {
         const titleKey = (item.title || '').toLowerCase().trim().slice(0, 60);
         const urlKey = item.url || '';
+        if (!titleKey || titleKey.length < 10) return false;
         if (seenTitles.has(titleKey)) return false;
-        if (urlKey && seenUrls.has(urlKey)) return false;
+        if (urlKey && urlKey !== '#' && seenUrls.has(urlKey)) return false;
         seenTitles.add(titleKey);
         if (urlKey) seenUrls.add(urlKey);
         return true;
       });
 
+      // Sort newest first
+      news.sort((a, b) => parseRSSDate(b.pubDate || b.time) - parseRSSDate(a.pubDate || a.time));
+
       res.writeHead(200);
-      res.end(JSON.stringify({ success: true, news }));
+      res.end(JSON.stringify({ success: true, news: news.slice(0, 15) }));
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
 
