@@ -64,25 +64,39 @@ function ChartModal({ symbol, label, onClose }) {
   );
 }
 
-function KPICard({ label, value, change, changeLabel, loading, onClick, symbol }) {
+function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, onClick, symbol }) {
+  const isNA = value === 'N/A' || value === '—';
   const isPositive = parseFloat(change) >= 0;
   return (
-    <div className="flex-1 rounded-xl p-4 card-hover" onClick={onClick}
-      style={{ background: '#12121a', border: '1px solid #1e1e2e', cursor: symbol ? 'pointer' : 'default' }}
-      title={symbol ? `Click to view ${label} chart` : undefined}>
-      {loading ? (<><SkeletonBox w="60%" h={12} className="mb-2" /><SkeletonBox w="80%" h={28} className="mb-2" /><SkeletonBox w="40%" h={12} /></>) : (
+    <div className="rounded-xl p-4 card-hover h-full" onClick={onClick}
+      style={{ background: '#12121a', border: '1px solid #1e1e2e', cursor: (symbol && onClick) ? 'pointer' : 'default' }}
+      title={symbol && onClick ? `Click to view ${label} chart` : undefined}>
+      {loading ? (<><SkeletonBox w="60%" h={10} className="mb-2" /><SkeletonBox w="80%" h={26} className="mb-2" /><SkeletonBox w="40%" h={10} /></>) : (
         <>
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-medium mb-1" style={{ color: '#64748b' }}>{label}</div>
-            {symbol && <span className="text-xs" style={{ color: '#334155' }}>📈</span>}
+          <div className="flex items-center justify-between mb-0.5">
+            <div className="text-xs font-medium" style={{ color: '#64748b' }}>{label}</div>
+            {badge && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: badge.bg, color: badge.color, fontSize: 9, fontWeight: 600 }}>
+                {badge.text}
+              </span>
+            )}
+            {!badge && symbol && onClick && <span className="text-xs" style={{ color: '#334155' }}>📈</span>}
           </div>
-          <div className="text-2xl font-bold mb-1" style={{ color: '#f1f5f9' }}>{value}</div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-medium" style={{ color: isPositive ? '#22c55e' : '#ef4444' }}>
-              {isPositive ? '▲' : '▼'} {Math.abs(parseFloat(change) || 0).toFixed(2)}%
-            </span>
-            {changeLabel && <span className="text-xs" style={{ color: '#475569' }}>{changeLabel}</span>}
+          {subtitle && <div className="text-xs mb-1" style={{ color: '#334155', fontSize: 9 }}>{subtitle}</div>}
+          <div className="font-bold mb-1" style={{ color: isNA ? '#475569' : '#f1f5f9', fontSize: isNA ? 16 : 22 }}>
+            {isNA ? 'Unavailable' : value}
           </div>
+          {!isNA && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-xs font-medium" style={{ color: isPositive ? '#22c55e' : '#ef4444' }}>
+                {isPositive ? '▲' : '▼'} {Math.abs(parseFloat(change) || 0).toFixed(2)}%
+              </span>
+              {changeLabel && <span className="text-xs" style={{ color: '#475569' }}>{changeLabel}</span>}
+            </div>
+          )}
+          {isNA && (
+            <div className="text-xs" style={{ color: '#334155' }}>Check NSE IFSC</div>
+          )}
         </>
       )}
     </div>
@@ -239,38 +253,45 @@ export default function Dashboard() {
         }}>{isLive ? '● Live (10s refresh)' : '● Mock Data'}</span>
       </div>
 
-      {/* Horizontally scrollable KPI cards row on mobile */}
-      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }} className="mb-5">
-        <div className="flex gap-3" style={{ minWidth: 'max-content', paddingBottom: 4 }}>
-          <div style={{ minWidth: 140, flex: '0 0 auto' }}>
-            <KPICard label="Nifty 50" symbol="^NSEI"
+      {/* KPI cards — horizontal scroll on mobile, flex row on desktop */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', paddingBottom: 4 }} className="mb-5">
+        <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+          <div style={{ width: 155 }}>
+            <KPICard label="Nifty 50" subtitle="NSE · Spot" symbol="^NSEI"
               value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
               change={indices.nifty?.change??0}
               changeLabel={`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`}
               loading={loading} onClick={() => setChartModal({symbol:'^NSEI',label:'Nifty 50'})} />
           </div>
-          <div style={{ minWidth: 140, flex: '0 0 auto' }}>
-            <KPICard label="Sensex" symbol="^BSESN"
+          <div style={{ width: 155 }}>
+            <KPICard label="Sensex" subtitle="BSE · Spot" symbol="^BSESN"
               value={loading ? '—' : (indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
               change={indices.sensex?.change??0}
               changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
               loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
           </div>
-          <div style={{ minWidth: 120, flex: '0 0 auto' }}>
-            <KPICard label="Gift Nifty" symbol={null}
-              value={loading ? '—' : (indices.giftNifty ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}) : 'N/A')}
+          <div style={{ width: 165 }}>
+            <KPICard label="GIFT Nifty" subtitle="NSE IFSC · Futures"
+              badge={indices.giftNifty
+                ? { text: '● LIVE', bg: 'rgba(34,197,94,0.12)', color: '#22c55e' }
+                : { text: 'FUTURES', bg: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
+              value={loading ? '—' : (indices.giftNifty
+                ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})
+                : 'N/A')}
               change={indices.giftNifty?.change??0}
-              changeLabel={indices.giftNifty ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)` : ''}
+              changeLabel={indices.giftNifty
+                ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`
+                : ''}
               loading={loading} />
           </div>
-          <div style={{ minWidth: 110, flex: '0 0 auto' }}>
-            <KPICard label="India VIX" symbol="^INDIAVIX"
+          <div style={{ width: 130 }}>
+            <KPICard label="India VIX" subtitle="Volatility" symbol="^INDIAVIX"
               value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
               change={indices.vix?.change??0} loading={loading}
               onClick={() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'})} />
           </div>
-          <div style={{ minWidth: 110, flex: '0 0 auto' }}>
-            <KPICard label="USD / INR" symbol="USDINR=X"
+          <div style={{ width: 130 }}>
+            <KPICard label="USD / INR" subtitle="Forex" symbol="USDINR=X"
               value={loading ? '—' : `₹${(indices.usdinr?.value??0).toFixed(2)}`}
               change={indices.usdinr?.change??0} loading={loading}
               onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />

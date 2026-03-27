@@ -25,6 +25,162 @@ const FMP_API_KEY = process.env.FMP_API_KEY || '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'd6u2f89r01qp1k9auq1gd6u2f89r01qp1k9auq20';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
+// ─── Gift Nifty live data ──────────────────────────────────────────────────
+
+let giftNiftyCache = null;
+let giftNiftyCacheTime = 0;
+const GIFT_NIFTY_TTL = 30 * 1000; // 30-second cache
+
+// Source 1: NSE's live blob storage (no auth required)
+async function fetchGiftNiftyFromNSEBlob() {
+  try {
+    const res = await httpsGet(
+      'https://iislliveblob.niftyindices.com/jsonfiles/LiveIndices.json',
+      {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, */*',
+        'Referer': 'https://www.nseindia.com/',
+        'Origin': 'https://www.nseindia.com',
+      },
+      8000,
+    );
+    const data = JSON.parse(res.data);
+    const list = Array.isArray(data) ? data : (data.data || data.indices || []);
+    const gift = list.find(i => {
+      const name = (i.indexName || i.indexSymbol || i.name || '').toLowerCase();
+      return name.includes('gift') || name.includes('giftnifty');
+    });
+    if (gift) {
+      const value  = parseFloat(gift.last || gift.indexValue || gift.closePrice || 0);
+      const change = parseFloat(gift.percentChange || gift.pChange || 0);
+      const points = parseFloat(gift.change || gift.pointChange || 0);
+      if (value > 5000) return { value, change, points, source: 'NSE' };
+    }
+  } catch (e) {
+    console.log('Gift Nifty NSE blob error:', e.message);
+  }
+  return null;
+}
+
+// Source 2: NSE India allIndices API (cookie-gated but often works)
+async function fetchGiftNiftyFromNSEApi() {
+  try {
+    const nseHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.nseindia.com/',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Connection': 'keep-alive',
+    };
+    // Get session cookies first
+    const homeRes = await httpsGet('https://www.nseindia.com/', nseHeaders, 5000);
+    const cookieStr = (homeRes.cookies || []).map(c => c.split(';')[0]).join('; ');
+    if (!cookieStr) return null;
+
+    const res = await httpsGet(
+      'https://www.nseindia.com/api/allIndices',
+      { ...nseHeaders, 'Cookie': cookieStr },
+      8000,
+    );
+    const data = JSON.parse(res.data);
+    const list = data.data || [];
+    const gift = list.find(i => {
+      const name = (i.indexSymbol || i.indexName || '').toLowerCase();
+      return name.includes('gift') || name.includes('giftnifty');
+    });
+    if (gift) {
+      const value  = parseFloat(gift.last || 0);
+      const change = parseFloat(gift.percentChange || 0);
+      const points = parseFloat(gift.change || 0);
+      if (value > 5000) return { value, change, points, source: 'NSE' };
+    }
+  } catch (e) {
+    console.log('Gift Nifty NSE API error:', e.message);
+  }
+  return null;
+}
+
+// Source 3: Google Finance HTML scrape (fallback)
+async function fetchGiftNiftyFromGoogle() {
+  try {
+    const res = await httpsGet(
+      'https://www.google.com/finance/quote/NIFTY_GIFTNIFTY:NSE',
+      {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      10000,
+    );
+    const html = res.data;
+
+    // Try JSON-LD structured data first
+    const jsonLdBlocks = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g) || [];
+    for (const block of jsonLdBlocks) {
+      try {
+        const content = block.replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
+        const json = JSON.parse(content);
+        if (json.price) {
+          const value  = parseFloat(String(json.price).replace(/,/g, ''));
+          const pctRaw = String(json.percentChange || '0').replace(/[+%]/g, '');
+          const change = parseFloat(pctRaw) || 0;
+          if (value > 5000) return { value, change, points: 0, source: 'Google' };
+        }
+      } catch {}
+    }
+
+    // Fallback: look for embedded price patterns
+    const patterns = [
+      /data-last-normal="([\d,\.]+)"/,
+      /"regularMarketPrice"\s*[,:]+"?([\d,\.]+)"?/,
+      /class="YMlKec fxKbKc"[^>]*>([\d,\.]+)</,
+      /"price"\s*:\s*"([\d,\.]+)"/,
+    ];
+    for (const pat of patterns) {
+      const m = html.match(pat);
+      if (m) {
+        const value = parseFloat(m[1].replace(/,/g, ''));
+        if (value > 5000) return { value, change: 0, points: 0, source: 'Google' };
+      }
+    }
+  } catch (e) {
+    console.log('Gift Nifty Google error:', e.message);
+  }
+  return null;
+}
+
+async function fetchGiftNiftyData() {
+  const now = Date.now();
+  if (giftNiftyCache && (now - giftNiftyCacheTime) < GIFT_NIFTY_TTL) {
+    return { ...giftNiftyCache, cached: true };
+  }
+
+  // Try all sources in parallel; use first successful result
+  const [blobData, googleData] = await Promise.all([
+    fetchGiftNiftyFromNSEBlob(),
+    fetchGiftNiftyFromGoogle(),
+  ]);
+
+  // NSE blob preferred; Google as fallback
+  const result = blobData || googleData;
+
+  // If live scraping fails, try the cookie-gated NSE API as last resort
+  if (!result) {
+    const nseData = await fetchGiftNiftyFromNSEApi();
+    if (nseData) {
+      giftNiftyCache = nseData;
+      giftNiftyCacheTime = now;
+      return nseData;
+    }
+    return null;
+  }
+
+  giftNiftyCache = result;
+  giftNiftyCacheTime = now;
+  return result;
+}
+
 // ─── Screener.in helpers ───────────────────────────────────────────────────
 
 // Simple in-memory cache for Screener data (5-min TTL)
@@ -936,6 +1092,11 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ success: true, news: news.slice(0, 20) }));
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
+
+    } else if (pathname === '/api/gift-nifty') {
+      const data = await fetchGiftNiftyData();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: !!data, data: data || null }));
 
     } else if (pathname === '/api/research') {
       // Proxy Anthropic API calls server-side

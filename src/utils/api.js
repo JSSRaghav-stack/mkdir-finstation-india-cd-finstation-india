@@ -56,11 +56,21 @@ export async function searchStocks(query) {
   }
 }
 
+async function fetchGiftNiftyLive() {
+  try {
+    const res = await fetch(`${API_BASE}/api/gift-nifty`, { signal: AbortSignal.timeout(8000) });
+    const json = await res.json();
+    return json?.data || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchIndices() {
   // Fetch main indices + Gift Nifty in parallel
-  const [quotes, giftQuotes] = await Promise.all([
+  const [quotes, giftData] = await Promise.all([
     fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X'),
-    fetchQuote('NIFTY_GIFTNIFTY.NS').catch(() => null),
+    fetchGiftNiftyLive(),
   ]);
   if (!quotes) return null;
   const find = (sym) => quotes.find(q => q.symbol === sym);
@@ -68,7 +78,6 @@ export async function fetchIndices() {
   const bsesn = find('^BSESN');
   const vix = find('^INDIAVIX');
   const usd = find('USDINR=X');
-  const gift = giftQuotes?.[0] || null;
 
   // Fix USD/INR — if value looks too small (< 10), it may be inverted (USD per INR)
   let usdinrValue = usd?.regularMarketPrice || 0;
@@ -81,9 +90,7 @@ export async function fetchIndices() {
     sensex: bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
     vix: vix ? { value: vix.regularMarketPrice, change: vix.regularMarketChangePercent, points: vix.regularMarketChange } : null,
     usdinr: usd ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
-    giftNifty: gift && gift.regularMarketPrice > 0
-      ? { value: gift.regularMarketPrice, change: gift.regularMarketChangePercent, points: gift.regularMarketChange }
-      : null,
+    giftNifty: giftData && giftData.value > 0 ? giftData : null,
   };
 }
 
