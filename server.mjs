@@ -410,9 +410,22 @@ async function fetchGoogleNewsRSS(companyName, symbol) {
 
 function extractSourceFromTitle(title) {
   // Google News titles often end with " - Source Name"
-  const m = title.match(/ - ([^-]+)$/);
+  const m = title.match(/ - ([^-]{3,40})$/);
   if (m) return m[1].trim();
   return null;
+}
+
+function categoriseNews(title) {
+  const t = (title || '').toLowerCase();
+  if (/result|profit|revenue|earnings|quarterly|q[1-4]|fy2/.test(t))  return 'Results';
+  if (/dividend|buyback|bonus|split|allotment/.test(t))               return 'Corporate Action';
+  if (/acqui|merger|takeover|stake|deal|bid|mou|agreement/.test(t))   return 'M&A';
+  if (/target|upgrade|downgrade|buy|sell|hold|analyst|rating|brokerage/.test(t)) return 'Analyst';
+  if (/ipo|fpo|offer|fundrais|qip|ncd/.test(t))                       return 'Fundraising';
+  if (/capex|expansion|plant|capacity|order|contract|win/.test(t))    return 'Business';
+  if (/esg|sustainab|green|environment/.test(t))                      return 'ESG';
+  if (/price|nse|bse|share|stock|market|sensex|nifty/.test(t))        return 'Markets';
+  return 'Company';
 }
 
 // Filter general RSS items that mention the company name
@@ -800,100 +813,127 @@ const server = createServer(async (req, res) => {
     } else if (pathname === '/api/news/company') {
       const { symbol, company, finnhubKey } = query;
       if (!symbol) throw new Error('symbol param required');
+      const cleanSym = symbol.replace(/\.(NS|BO)$/i, '');
+      const companyName = company || cleanSym;
       const apiKey = finnhubKey || FINNHUB_API_KEY;
-      let news = [];
 
-      if (apiKey) {
-        try {
-          const finnhubSym = toFinnhubSymbol(symbol);
-          const toDate = new Date();
-          const fromDate = new Date(toDate);
-          fromDate.setDate(fromDate.getDate() - 30);
-          const from = fromDate.toISOString().split('T')[0];
-          const to = toDate.toISOString().split('T')[0];
-          const data = await fetchFinnhub(
-            `/api/v1/company-news?symbol=${encodeURIComponent(finnhubSym)}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`,
-            apiKey
-          );
-          news = (Array.isArray(data) ? data : []).slice(0, 12).map(n => ({
-            id: n.id || Math.random(),
-            title: n.headline || '',
-            source: n.source || 'Finnhub',
-            url: n.url || '#',
-            time: n.datetime
-              ? new Date(n.datetime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
-              : 'Recent',
-            category: n.category || 'Company',
-            summary: n.summary || '',
-          }));
-        } catch (e) {
-          console.error('Finnhub company news error:', e.message);
-        }
-      }
+      // ── Run ALL sources in parallel for speed ────────────────────────────
+      const [finnhubResult, yahooResult, googleResult, bingResult, rssResult] =
+        await Promise.allSettled([
 
-      // Fallback: Yahoo Finance search news
-      if (news.length === 0) {
-        try {
-          const q = company || symbol.replace(/\.(NS|BO)$/i, '');
-          const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=0&newsCount=10&lang=en-IN&region=IN`;
-          const data = await fetchYF(url);
-          news = (data?.news || []).map((n, i) => ({
-            id: n.uuid || i,
-            title: n.title || '',
-            source: n.publisher || 'Yahoo Finance',
-            url: n.link || '#',
-            time: n.providerPublishTime
-              ? new Date(n.providerPublishTime * 1000).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
-              : 'Recent',
-            category: 'Company',
-            summary: '',
-          }));
-        } catch (e) {
-          console.error('Yahoo company news fallback error:', e.message);
-        }
-      }
+          // 1. Finnhub company news
+          (async () => {
+            if (!apiKey) return [];
+            const finnhubSym = toFinnhubSymbol(symbol);
+            const toDate = new Date();
+            const fromDate = new Date(toDate);
+            fromDate.setDate(fromDate.getDate() - 30);
+            const from = fromDate.toISOString().split('T')[0];
+            const to   = toDate.toISOString().split('T')[0];
+            const data = await fetchFinnhub(
+              `/api/v1/company-news?symbol=${encodeURIComponent(finnhubSym)}&from=${from}&to=${to}&token=${encodeURIComponent(apiKey)}`,
+              apiKey
+            );
+            return (Array.isArray(data) ? data : []).slice(0, 10).map(n => ({
+              title:    n.headline || '',
+              source:   n.source   || 'Finnhub',
+              url:      n.url      || '#',
+              time:     n.datetime ? relativeTime(new Date(n.datetime * 1000).toISOString()) : 'Recent',
+              pubDate:  n.datetime ? new Date(n.datetime * 1000).toISOString() : '',
+              category: categoriseNews(n.headline || ''),
+              summary:  n.summary || '',
+            })).filter(n => n.title.length > 10);
+          })(),
 
-      // ── Google News RSS search (free, no key, company-specific) ─────────
-      if (news.length < 4) {
-        try {
-          const googleNews = await fetchGoogleNewsRSS(company || symbol, symbol);
-          news = [...news, ...googleNews];
-        } catch (e) {
-          console.error('Google News RSS error:', e.message);
-        }
-      }
+          // 2. Yahoo Finance search news
+          (async () => {
+            const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(companyName)}&quotesCount=0&newsCount=10&lang=en-IN&region=IN`;
+            const data = await fetchYF(url);
+            return (data?.news || []).map(n => ({
+              title:    n.title || '',
+              source:   n.publisher || 'Yahoo Finance',
+              url:      n.link || '#',
+              time:     n.providerPublishTime ? relativeTime(new Date(n.providerPublishTime * 1000).toISOString()) : 'Recent',
+              pubDate:  n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : '',
+              category: categoriseNews(n.title || ''),
+              summary:  '',
+            })).filter(n => n.title.length > 10);
+          })(),
 
-      // ── Filter general RSS feeds by company name ──────────────────────
-      if (news.length < 4 && company) {
-        try {
-          const rssResults = await Promise.allSettled(INDIA_NEWS_FEEDS.slice(0, 6).map(fetchIndiaNewsFeed));
-          const allRSS = rssResults.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-          const matched = filterRSSByCompany(allRSS, company);
-          news = [...news, ...matched];
-        } catch (e) {
-          console.error('RSS company filter error:', e.message);
-        }
-      }
+          // 3. Google News RSS (free, no key, most reliable)
+          fetchGoogleNewsRSS(companyName, symbol),
 
-      // Deduplicate by title
-      const seenTitles = new Set();
-      const seenUrls = new Set();
+          // 4. Bing News RSS (free, no key)
+          (async () => {
+            const queries = [
+              `${companyName} NSE stock`,
+              `${cleanSym} share price India`,
+            ];
+            const all = [];
+            for (const q of queries) {
+              try {
+                const url = `https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss`;
+                const res = await httpsGet(url, {
+                  'User-Agent': 'Mozilla/5.0 (compatible; FinStation/1.0)',
+                  'Accept': 'application/rss+xml, text/xml, */*',
+                }, 10000);
+                if (res.status !== 200) continue;
+                const items = parseRSS(res.data);
+                for (const item of items.slice(0, 8)) {
+                  all.push({
+                    title:    item.title,
+                    source:   extractSourceFromTitle(item.title) || 'Bing News',
+                    url:      item.link || '#',
+                    time:     relativeTime(item.pubDate),
+                    pubDate:  item.pubDate || '',
+                    category: categoriseNews(item.title),
+                    summary:  item.description || '',
+                  });
+                }
+              } catch { /* silent */ }
+            }
+            return all;
+          })(),
+
+          // 5. Indian RSS feeds filtered by company name keywords
+          (async () => {
+            const results = await Promise.allSettled(INDIA_NEWS_FEEDS.map(fetchIndiaNewsFeed));
+            const allRSS  = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+            return filterRSSByCompany(allRSS, companyName).map(n => ({
+              ...n,
+              category: categoriseNews(n.title),
+            }));
+          })(),
+        ]);
+
+      // Merge all results
+      let news = [
+        ...(finnhubResult.status === 'fulfilled' ? finnhubResult.value : []),
+        ...(yahooResult.status   === 'fulfilled' ? yahooResult.value   : []),
+        ...(googleResult.status  === 'fulfilled' ? googleResult.value  : []),
+        ...(bingResult.status    === 'fulfilled' ? bingResult.value    : []),
+        ...(rssResult.status     === 'fulfilled' ? rssResult.value     : []),
+      ];
+
+      // Deduplicate by title prefix + URL
+      const seenT = new Set();
+      const seenU = new Set();
       news = news.filter(item => {
-        const titleKey = (item.title || '').toLowerCase().trim().slice(0, 60);
-        const urlKey = item.url || '';
-        if (!titleKey || titleKey.length < 10) return false;
-        if (seenTitles.has(titleKey)) return false;
-        if (urlKey && urlKey !== '#' && seenUrls.has(urlKey)) return false;
-        seenTitles.add(titleKey);
-        if (urlKey) seenUrls.add(urlKey);
+        const tk = (item.title || '').toLowerCase().trim().slice(0, 55);
+        const uk = item.url || '';
+        if (!tk || tk.length < 10) return false;
+        if (seenT.has(tk)) return false;
+        if (uk && uk !== '#' && seenU.has(uk)) return false;
+        seenT.add(tk);
+        if (uk && uk !== '#') seenU.add(uk);
         return true;
       });
 
       // Sort newest first
-      news.sort((a, b) => parseRSSDate(b.pubDate || b.time) - parseRSSDate(a.pubDate || a.time));
+      news.sort((a, b) => parseRSSDate(b.pubDate) - parseRSSDate(a.pubDate));
 
       res.writeHead(200);
-      res.end(JSON.stringify({ success: true, news: news.slice(0, 15) }));
+      res.end(JSON.stringify({ success: true, news: news.slice(0, 20) }));
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
 

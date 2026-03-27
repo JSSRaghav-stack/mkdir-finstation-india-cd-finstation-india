@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { STOCK_LIST, DETAILED_STOCK_DATA, generateStockNews } from '../data/mockData.js';
+import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
 import { formatMarketCap } from '../utils/formatters.js';
 import { fetchStockDetail, fetchChart, searchStocks, fetchStockSpecificNews } from '../utils/api.js';
 
@@ -209,10 +209,7 @@ export default function CompanyIntel() {
       const hasUsableData = liveDetail && (liveDetail.price > 0 || liveDetail.pe !== 'N/A' || liveDetail.revenue > 0);
       if (hasUsableData) {
         // Attach news: use mock news if available, otherwise generate from sector templates
-        const mockD = DETAILED_STOCK_DATA[stock.ticker];
-        if (!liveDetail.news || liveDetail.news.length === 0) {
-          liveDetail.news = mockD?.news || generateStockNews(liveDetail.name || stock.name, liveDetail.sector || stock.sector);
-        }
+        // news comes from liveNews state (fetched separately in background)
         setStockData(liveDetail);
         setIsLive(true);
         if (liveChart && liveChart.length > 0) {
@@ -779,21 +776,17 @@ export default function CompanyIntel() {
 
             {/* ── NEWS TAB ── */}
             {activeTab === 'News' && (() => {
-              const maKeywords = ['acqui', 'merger', 'buyback', 'fundrais', 'dividend', 'bonus', 'split', 'stake', 'deal', 'takeover'];
-              const maNews = liveNews ? liveNews.filter(n => maKeywords.some(k => (n.title || '').toLowerCase().includes(k))).slice(0, 3) : [];
-
-              const generatedNews = generateStockNews(stockData.name, stockData.sector).map(n => ({
-                ...n, url: `https://news.google.com/search?q=${encodeURIComponent(stockData.name + ' ' + (n.title || '').split(' ').slice(0, 4).join(' '))}`,
-              }));
-              const rawNews = liveNews && liveNews.length > 0 ? liveNews : generatedNews;
+              const maKeywords = ['acqui', 'merger', 'buyback', 'fundrais', 'dividend', 'bonus', 'split', 'stake', 'deal', 'takeover', 'order', 'contract', 'mou'];
               const seen = new Set();
-              const news = rawNews.filter(n => {
-                const key = (n.title || '').toLowerCase().slice(0, 60);
-                if (seen.has(key)) return false;
+              const news = (liveNews || []).filter(n => {
+                const key = (n.title || '').toLowerCase().slice(0, 55);
+                if (key.length < 10 || seen.has(key)) return false;
                 seen.add(key);
                 return true;
               });
-              const isLiveNews = liveNews && liveNews.length > 0;
+              const maNews = news.filter(n => maKeywords.some(k => (n.title || '').toLowerCase().includes(k))).slice(0, 4);
+              const latestNews = news.filter(n => !maKeywords.some(k => (n.title || '').toLowerCase().includes(k)));
+              const isLiveNews = news.length > 0;
 
               const NewsCard = ({ n }) => {
                 const url = n.url || n.link || '#';
@@ -839,16 +832,30 @@ export default function CompanyIntel() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-semibold" style={{ color: '#f1f5f9' }}>Latest News</span>
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{
-                        background: isLiveNews ? 'rgba(34,197,94,0.1)' : '#1e1e2e',
-                        color: isLiveNews ? '#22c55e' : '#64748b',
-                      }}>
-                        {isLiveNews ? `● Live · ${news.length}` : `${news.length} articles`}
-                      </span>
+                      {isLiveNews && (
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}>
+                          ● Live · {news.length}
+                        </span>
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      {news.slice(0, 8).map((n, i) => <NewsCard key={i} n={n} />)}
-                    </div>
+                    {latestNews.length > 0 ? (
+                      <div className="space-y-2">
+                        {latestNews.slice(0, 10).map((n, i) => <NewsCard key={i} n={n} />)}
+                      </div>
+                    ) : !isLiveNews ? (
+                      /* No news loaded yet — loading state or true empty */
+                      <div className="rounded-xl p-5 text-center" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                        <div className="text-2xl mb-2">📰</div>
+                        <div className="text-sm font-medium mb-1" style={{ color: '#94a3b8' }}>Fetching live news…</div>
+                        <div className="text-xs mb-4" style={{ color: '#475569' }}>News loads in the background. If nothing appears, search directly below.</div>
+                        <a href={`https://news.google.com/search?q=${encodeURIComponent(stockData.name + ' NSE stock')}&hl=en-IN&gl=IN`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                            background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', textDecoration: 'none' }}>
+                          Search on Google News ↗
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
