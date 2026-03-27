@@ -178,6 +178,8 @@ export default function CompanyIntel() {
     setChartData([]);
     setIsLive(false);
     setLiveNews(null);
+    setActiveTab('Overview');
+    setRange('1Y');
 
     // Fetch news in background (non-blocking)
     fetchStockSpecificNews(stock.ticker, stock.name, stock.sector).then(news => {
@@ -191,7 +193,8 @@ export default function CompanyIntel() {
         fetchChart(stock.ticker, '1y', '1d'),
       ]);
 
-      if (liveDetail && liveDetail.price > 0) {
+      const hasUsableData = liveDetail && (liveDetail.price > 0 || liveDetail.pe !== 'N/A' || liveDetail.revenue > 0);
+      if (hasUsableData) {
         // Attach news: use mock news if available, otherwise generate from sector templates
         const mockD = DETAILED_STOCK_DATA[stock.ticker];
         if (!liveDetail.news || liveDetail.news.length === 0) {
@@ -308,7 +311,7 @@ export default function CompanyIntel() {
           />
           {query && (
             <button
-              onClick={() => { setQuery(''); setSelected(null); setStockData(null); setChartData([]); }}
+              onClick={() => { setQuery(''); setSelected(null); setStockData(null); setChartData([]); setLiveNews(null); setActiveTab('Overview'); setRange('1Y'); }}
               className="text-xs"
               style={{ color: '#475569' }}
             >
@@ -446,8 +449,8 @@ export default function CompanyIntel() {
             </div>
           </div>
 
-          {/* Sticky tab bar */}
-          <div className="sticky z-20 flex border-b overflow-x-auto" style={{ top: 0, background: '#0d0d15', borderColor: '#1a1a2a', scrollbarWidth: 'none' }}>
+          {/* Sticky tab bar — sits below the sticky search bar (~68px) */}
+          <div className="sticky z-20 flex border-b overflow-x-auto" style={{ top: 68, background: '#0d0d15', borderColor: '#1a1a2a', scrollbarWidth: 'none' }}>
             {TABS.map(tab => (
               <button
                 key={tab}
