@@ -228,9 +228,9 @@ export default function CompanyIntel() {
         high52w: 0, low52w: 0,
         dividendYield: 0,
         revenue: 0, netProfit: 0,
-        ebitdaMargin: 'N/A', roe: 'N/A',
+        ebitdaMargin: 'N/A', roe: 'N/A', roce: 'N/A', netMargin: 'N/A',
         debtEquity: 'N/A', currentRatio: 'N/A',
-        evEbitda: 'N/A',
+        evEbitda: 'N/A', bookValue: 'N/A',
         changePct: 0, change: 0,
         description: `${stock.name} is listed on NSE under the ${stock.sector} sector.`,
         news: [],
@@ -697,6 +697,7 @@ export default function CompanyIntel() {
             const fmt = (v, suffix='', prefix='') => (v === 'N/A' || v === undefined || v === null) ? 'N/A' : `${prefix}${v}${suffix}`;
             const rev = sd.revenue ? sd.revenue / 100 : null;
             const np = sd.netProfit ? sd.netProfit / 100 : null;
+            const nmVal = sd.netMargin != null && sd.netMargin !== 'N/A' ? `${sd.netMargin}%` : (rev && np ? `${(np/rev*100).toFixed(1)}%` : 'N/A');
             const ratioData = {
               Valuation: [
                 { label: 'P/E Ratio', value: fmt(sd.pe,'x'), desc: 'Price to Earnings' },
@@ -704,21 +705,24 @@ export default function CompanyIntel() {
                 { label: 'EV/EBITDA', value: fmt(sd.evEbitda,'x'), desc: 'Enterprise Value to EBITDA' },
                 { label: 'Dividend Yield', value: fmt(sd.dividendYield,'%'), desc: 'Annual dividend / Price' },
                 { label: 'EPS (TTM)', value: sd.eps !== 'N/A' ? `₹${sd.eps}` : 'N/A', desc: 'Earnings per share' },
+                { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : 'N/A', desc: 'Net asset value per share' },
                 { label: 'Market Cap', value: sd.marketCapCr ? (sd.marketCapCr > 100000 ? `₹${(sd.marketCapCr/100000).toFixed(1)}L Cr` : `₹${sd.marketCapCr.toLocaleString()} Cr`) : 'N/A', desc: 'Total market capitalisation' },
                 { label: '52W High', value: sd.high52w ? `₹${sd.high52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week highest price' },
                 { label: '52W Low', value: sd.low52w ? `₹${sd.low52w.toLocaleString('en-IN')}` : 'N/A', desc: '52-week lowest price' },
               ],
               Profitability: [
                 { label: 'EBITDA Margin', value: fmt(sd.ebitdaMargin,'%'), desc: 'EBITDA as % of revenue' },
-                { label: 'Net Margin', value: (rev && np) ? `${(np/rev*100).toFixed(1)}%` : 'N/A', desc: 'Net profit / Revenue' },
+                { label: 'Net Margin', value: nmVal, desc: 'Net profit / Revenue' },
                 { label: 'ROE', value: fmt(sd.roe,'%'), desc: 'Return on Equity' },
-                { label: 'Beta', value: fmt(sd.beta), desc: 'Volatility vs Nifty 50' },
+                { label: 'ROCE', value: sd.roce != null && sd.roce !== 'N/A' ? `${sd.roce}%` : 'N/A', desc: 'Return on Capital Employed' },
                 { label: 'Revenue (TTM)', value: rev ? `₹${Math.round(rev).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months revenue' },
                 { label: 'Net Profit (TTM)', value: np ? `₹${Math.round(np).toLocaleString('en-IN')} Cr` : 'N/A', desc: 'Trailing twelve months net profit' },
+                { label: 'Beta', value: fmt(sd.beta), desc: 'Volatility vs Nifty 50' },
               ],
               Leverage: [
                 { label: 'Debt / Equity', value: fmt(sd.debtEquity,'x'), desc: 'Total debt / Shareholders equity' },
                 { label: 'P/B Ratio', value: fmt(sd.pb,'x'), desc: 'Market price vs book value per share' },
+                { label: 'Book Value/Share', value: sd.bookValue != null && sd.bookValue !== 'N/A' ? `₹${sd.bookValue}` : 'N/A', desc: 'Net asset value per share' },
                 { label: 'Interest Coverage', value: 'N/A', desc: 'EBIT / Interest expense' },
                 { label: 'Net Debt/EBITDA', value: 'N/A', desc: 'Net debt / EBITDA — leverage measure' },
               ],

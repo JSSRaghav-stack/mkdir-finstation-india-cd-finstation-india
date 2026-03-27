@@ -131,65 +131,95 @@ export async function fetchScreenerData(symbol) {
 }
 
 export async function fetchStockDetail(ticker) {
-  // Fetch all three sources in parallel for speed
+  // Fetch all three sources in parallel
   const [quotes, fundamentals, screener] = await Promise.all([
     fetchQuote(ticker),
     fetchFundamentals(ticker),
     fetchScreenerData(ticker),
   ]);
 
-  if (!quotes || quotes.length === 0) return null;
-  const q = quotes[0];
+  const q = quotes?.[0] || null;
 
-  // Priority: Screener.in (Indian-specific, TTM) > Yahoo quoteSummary > N/A
-  // Revenue/NetProfit stored as Crore*100 to match display code (÷100 → Cr)
-  const revenue = screener?.revenueCr != null
-    ? Math.round(screener.revenueCr * 100)
-    : (fundamentals?.revenue || 0);
+  // If Yahoo completely failed but Screener has data, build partial result
+  const hasYahoo = q && q.regularMarketPrice > 0;
+  const hasScreener = screener && (screener.revenueCr != null || screener.pe != null);
 
-  const netProfit = screener?.netProfitCr != null
-    ? Math.round(screener.netProfitCr * 100)
-    : (fundamentals?.netProfit || 0);
+  if (!hasYahoo && !hasScreener) return null;
 
-  const ebitdaMargin = screener?.opmPercent != null
-    ? screener.opmPercent                          // OPM% ≈ EBITDA margin
-    : (fundamentals?.ebitdaMargin ?? 'N/A');
+  // ── Price data (Yahoo primary) ──────────────────────────────────────────
+  const price       = q?.regularMarketPrice || 0;
+  const marketCapCr = q?.marketCap
+    ? Math.round(q.marketCap / 10000000)
+    : (screener?.marketCapCr || 0);
 
-  const roe = screener?.roe != null
-    ? screener.roe
-    : (fundamentals?.roe ?? 'N/A');
+  // ── Earnings Per Share — Screener TTM > Yahoo ──────────────────────────
+  const eps = screener?.eps != null
+    ? Math.round(screener.eps * 100) / 100
+    : (q?.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A');
+
+  // ── P/E — Screener > Yahoo > calculated from price/eps ─────────────────
+  let pe = screener?.pe != null
+    ? Math.round(screener.pe * 10) / 10
+    : (q?.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A');
+  if (pe === 'N/A' && price > 0 && eps !== 'N/A' && eps > 0) {
+    pe = Math.round((price / eps) * 10) / 10; // calculated
+  }
+
+  // ── P/B — Yahoo > calculated from price/bookValue ──────────────────────
+  let pb = q?.priceToBook ? Math.round(q.priceToBook * 100) / 100 : 'N/A';
+  if (pb === 'N/A' && price > 0 && screener?.bookValue > 0 && marketCapCr > 0) {
+    // bookValue from Screener is per share (₹)
+    pb = Math.round((price / screener.bookValue) * 100) / 100;
+  }
+
+  // ── Revenue / Net Profit ────────────────────────────────────────────────
+  const revenue   = screener?.revenueCr   != null ? Math.round(screener.revenueCr * 100)   : (fundamentals?.revenue || 0);
+  const netProfit = screener?.netProfitCr != null ? Math.round(screener.netProfitCr * 100) : (fundamentals?.netProfit || 0);
+
+  // ── Margin / ROE / ROCE ─────────────────────────────────────────────────
+  const ebitdaMargin = screener?.opmPercent != null ? screener.opmPercent : (fundamentals?.ebitdaMargin ?? 'N/A');
+  const roe  = screener?.roe  != null ? screener.roe  : (fundamentals?.roe ?? 'N/A');
+  const roce = screener?.roce != null ? screener.roce : 'N/A';
+
+  // Net margin calculated when possible
+  const netMargin = (revenue > 0 && netProfit > 0)
+    ? Math.round((netProfit / revenue) * 1000) / 10
+    : 'N/A';
+
+  // ── Debt / Equity — Screener balance sheet > Yahoo ─────────────────────
+  const debtEquity   = screener?.debtEquity    != null ? screener.debtEquity    : (fundamentals?.debtEquity    ?? 'N/A');
+  const currentRatio = fundamentals?.currentRatio ?? 'N/A';
+
+  // ── Dividend Yield — Screener > Yahoo ──────────────────────────────────
+  const dividendYield = screener?.dividendYield != null
+    ? screener.dividendYield
+    : (q?.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0);
 
   return {
-    name: q.longName || q.shortName || ticker.replace('.NS', ''),
-    ticker: q.symbol,
-    sector: q.industry || 'N/A',
-    exchange: q.exchange === 'NSI' ? 'NSE' : q.exchange || 'NSE',
-    description: `${q.longName || q.shortName} listed on ${q.exchange === 'NSI' ? 'NSE' : q.exchange}.`,
-    price: q.regularMarketPrice || 0,
-    marketCap: q.marketCap ? (q.marketCap / 10000000).toFixed(0) : 'N/A',
-    marketCapCr: q.marketCap ? Math.round(q.marketCap / 10000000) : 0,
-    high52w: q.fiftyTwoWeekHigh || 0,
-    low52w: q.fiftyTwoWeekLow || 0,
-    pe: q.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A',
-    pb: q.priceToBook ? Math.round(q.priceToBook * 100) / 100 : 'N/A',
-    eps: q.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A',
-    evEbitda: fundamentals?.evEbitda ?? 'N/A',
-    dividendYield: q.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0,
-    beta: q.beta ? Math.round(q.beta * 100) / 100 : 'N/A',
-    revenue,
-    netProfit,
-    ebitdaMargin,
-    roe,
-    // D/E and Current Ratio from Yahoo quoteSummary (Screener doesn't expose these in key ratios)
-    debtEquity: fundamentals?.debtEquity ?? 'N/A',
-    currentRatio: fundamentals?.currentRatio ?? 'N/A',
-    dayHigh: q.regularMarketDayHigh || 0,
-    dayLow: q.regularMarketDayLow || 0,
-    open: q.regularMarketOpen || 0,
-    prevClose: q.regularMarketPreviousClose || 0,
-    volume: q.regularMarketVolume || 0,
-    change: q.regularMarketChange || 0,
-    changePct: q.regularMarketChangePercent || 0,
+    name:        q?.longName || q?.shortName || ticker.replace('.NS', ''),
+    ticker:      q?.symbol   || ticker,
+    sector:      q?.industry || 'N/A',
+    exchange:    q?.exchange === 'NSI' ? 'NSE' : (q?.exchange || 'NSE'),
+    description: `${q?.longName || q?.shortName || ticker} listed on NSE.`,
+    price,
+    marketCap:   marketCapCr ? marketCapCr.toString() : 'N/A',
+    marketCapCr,
+    high52w:     q?.fiftyTwoWeekHigh  || 0,
+    low52w:      q?.fiftyTwoWeekLow   || 0,
+    pe, pb, eps,
+    evEbitda:    fundamentals?.evEbitda ?? 'N/A',
+    dividendYield,
+    beta:        q?.beta ? Math.round(q.beta * 100) / 100 : 'N/A',
+    revenue, netProfit, ebitdaMargin, roe, roce, netMargin,
+    debtEquity, currentRatio,
+    bookValue:   screener?.bookValue ?? 'N/A',
+    dayHigh:     q?.regularMarketDayHigh         || 0,
+    dayLow:      q?.regularMarketDayLow          || 0,
+    open:        q?.regularMarketOpen            || 0,
+    prevClose:   q?.regularMarketPreviousClose   || 0,
+    volume:      q?.regularMarketVolume          || 0,
+    change:      q?.regularMarketChange          || 0,
+    changePct:   q?.regularMarketChangePercent   || 0,
   };
 }
 
