@@ -1,70 +1,83 @@
-// DCF Calculation
+// Safe number helper — converts any value to a finite number, with optional default
+function safeNum(v, fallback = 0) {
+  const n = parseFloat(v);
+  return isFinite(n) ? n : fallback;
+}
+
+function safeRound(v) {
+  const n = Math.round(v);
+  return isFinite(n) ? n : 0;
+}
+
+// DCF Calculation — guaranteed to never throw
 export function calculateDCF(inputs) {
-  const {
-    baseRevenue,
-    growthRate1to3,
-    growthRate4to5,
-    ebitdaMargin,
-    depreciation,
-    taxRate,
-    capex,
-    changeWC,
-    wacc,
-    terminalGrowthRate,
-    netDebt,
-    sharesOutstanding,
-  } = inputs;
+  // Sanitize all inputs — NaN/undefined/Infinity → safe defaults
+  const baseRevenue      = safeNum(inputs?.baseRevenue,      50000);
+  const growthRate1to3   = safeNum(inputs?.growthRate1to3,   15);
+  const growthRate4to5   = safeNum(inputs?.growthRate4to5,   10);
+  const ebitdaMargin     = safeNum(inputs?.ebitdaMargin,     22);
+  const depreciation     = safeNum(inputs?.depreciation,     4);
+  const taxRate          = safeNum(inputs?.taxRate,          25);
+  const capex            = safeNum(inputs?.capex,            6);
+  const changeWC         = safeNum(inputs?.changeWC,         3);
+  const wacc             = safeNum(inputs?.wacc,             12);
+  const netDebt          = safeNum(inputs?.netDebt,          5000);
+  const sharesOutstanding = safeNum(inputs?.sharesOutstanding, 680);
 
-  const years = [1, 2, 3, 4, 5];
+  // Terminal growth must be strictly less than WACC (prevent division by zero / negative TV)
+  const rawTGR = safeNum(inputs?.terminalGrowthRate, 4);
+  const terminalGrowthRate = Math.min(rawTGR, wacc - 0.5); // ensure gap >= 0.5%
+
   const rows = [];
+  let prevRevenue = Math.max(1, baseRevenue); // avoid zero base
 
-  let prevRevenue = baseRevenue;
-
-  years.forEach((year) => {
-    const growthRate = year <= 3 ? growthRate1to3 / 100 : growthRate4to5 / 100;
-    const revenue = prevRevenue * (1 + growthRate);
-    const ebitda = revenue * (ebitdaMargin / 100);
-    const da = revenue * (depreciation / 100);
-    const ebit = ebitda - da;
-    const nopat = ebit * (1 - taxRate / 100);
-    const capexAmt = revenue * (capex / 100);
-    const wcChange = revenue * (changeWC / 100);
-    const fcf = nopat + da - capexAmt - wcChange;
+  for (let year = 1; year <= 5; year++) {
+    const growthRate  = year <= 3 ? growthRate1to3 / 100 : growthRate4to5 / 100;
+    const revenue     = prevRevenue * (1 + growthRate);
+    const ebitda      = revenue * (ebitdaMargin / 100);
+    const da          = revenue * (depreciation / 100);
+    const ebit        = ebitda - da;
+    const nopat       = ebit * (1 - taxRate / 100);
+    const capexAmt    = revenue * (capex / 100);
+    const wcChange    = revenue * (changeWC / 100);
+    const fcf         = nopat + da - capexAmt - wcChange;
     const discountFactor = Math.pow(1 + wacc / 100, year);
-    const pvFcf = fcf / discountFactor;
+    const pvFcf       = discountFactor > 0 ? fcf / discountFactor : 0;
 
     rows.push({
       year,
-      revenue: Math.round(revenue),
-      ebitda: Math.round(ebitda),
-      ebit: Math.round(ebit),
-      nopat: Math.round(nopat),
-      da: Math.round(da),
-      capex: Math.round(capexAmt),
-      changeWC: Math.round(wcChange),
-      fcf: Math.round(fcf),
-      pvFcf: Math.round(pvFcf),
+      revenue:   safeRound(revenue),
+      ebitda:    safeRound(ebitda),
+      ebit:      safeRound(ebit),
+      nopat:     safeRound(nopat),
+      da:        safeRound(da),
+      capex:     safeRound(capexAmt),
+      changeWC:  safeRound(wcChange),
+      fcf:       safeRound(fcf),
+      pvFcf:     safeRound(pvFcf),
     });
 
     prevRevenue = revenue;
-  });
+  }
 
-  const lastFCF = rows[4].fcf;
-  const terminalValue = lastFCF * (1 + terminalGrowthRate / 100) / ((wacc / 100) - (terminalGrowthRate / 100));
+  const lastFCF       = rows[4]?.fcf ?? 0;
+  const denominator   = (wacc / 100) - (terminalGrowthRate / 100);
+  const terminalValue = denominator > 0 ? lastFCF * (1 + terminalGrowthRate / 100) / denominator : lastFCF * 20;
   const pvTerminalValue = terminalValue / Math.pow(1 + wacc / 100, 5);
-  const sumPvFcf = rows.reduce((sum, r) => sum + r.pvFcf, 0);
+  const sumPvFcf      = rows.reduce((sum, r) => sum + (r.pvFcf || 0), 0);
   const enterpriseValue = sumPvFcf + pvTerminalValue;
-  const equityValue = enterpriseValue - netDebt;
-  const intrinsicValuePerShare = sharesOutstanding > 0 ? equityValue / sharesOutstanding : 0;
+  const equityValue   = enterpriseValue - netDebt;
+  const rawIVPS       = sharesOutstanding > 0 ? equityValue / sharesOutstanding : 0;
+  const intrinsicValuePerShare = isFinite(rawIVPS) ? Math.round(rawIVPS * 100) / 100 : 0;
 
   return {
     rows,
-    sumPvFcf: Math.round(sumPvFcf),
-    terminalValue: Math.round(terminalValue),
-    pvTerminalValue: Math.round(pvTerminalValue),
-    enterpriseValue: Math.round(enterpriseValue),
-    equityValue: Math.round(equityValue),
-    intrinsicValuePerShare: Math.round(intrinsicValuePerShare * 100) / 100,
+    sumPvFcf:             safeRound(sumPvFcf),
+    terminalValue:        safeRound(terminalValue),
+    pvTerminalValue:      safeRound(pvTerminalValue),
+    enterpriseValue:      safeRound(enterpriseValue),
+    equityValue:          safeRound(equityValue),
+    intrinsicValuePerShare,
   };
 }
 

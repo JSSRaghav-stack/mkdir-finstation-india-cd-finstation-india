@@ -1,4 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component } from 'react';
+
+// ─── Global Error Boundary — prevents ANY crash from going blank ──────────────
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('[FinStation ErrorBoundary]', error, info?.componentStack);
+  }
+  reset() { this.setState({ hasError: false, error: null }); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          background: '#0a0a0f', color: '#f1f5f9', height: '100%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 16, padding: 32, textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 40 }}>⚠️</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Page crashed — this section had an error</div>
+          <div style={{ fontSize: 12, color: '#475569', maxWidth: 360 }}>
+            {this.state.error?.message || 'Unknown error'}
+          </div>
+          <button
+            onClick={() => this.reset()}
+            style={{
+              marginTop: 8, padding: '10px 24px',
+              background: 'linear-gradient(135deg,#6366f1,#818cf8)',
+              color: '#fff', border: 'none', borderRadius: 10,
+              cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              boxShadow: '0 0 20px rgba(99,102,241,0.4)',
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import {
   LayoutDashboard,
   Search,
@@ -427,13 +472,13 @@ export default function App() {
             </div>
           </header>
 
-          {/* Page content */}
+          {/* Page content — each wrapped in ErrorBoundary so a page crash never blanks the whole app */}
           <div className="main-content-area flex-1 overflow-hidden">
-            {activeSection === 'dashboard' && <Dashboard />}
-            {activeSection === 'company'   && <CompanyIntel />}
-            {activeSection === 'ai'        && <AIResearch />}
-            {activeSection === 'dcf'       && <DCFValuation />}
-            {activeSection === 'lbo'       && <LBOAnalyzer />}
+            {activeSection === 'dashboard' && <ErrorBoundary key="dashboard"><Dashboard /></ErrorBoundary>}
+            {activeSection === 'company'   && <ErrorBoundary key="company"><CompanyIntel /></ErrorBoundary>}
+            {activeSection === 'ai'        && <ErrorBoundary key="ai"><AIResearch /></ErrorBoundary>}
+            {activeSection === 'dcf'       && <ErrorBoundary key="dcf"><DCFValuation /></ErrorBoundary>}
+            {activeSection === 'lbo'       && <ErrorBoundary key="lbo"><LBOAnalyzer /></ErrorBoundary>}
           </div>
         </main>
 

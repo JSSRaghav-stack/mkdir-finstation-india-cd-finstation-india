@@ -264,10 +264,10 @@ export default function DCFValuation() {
   const set = (key) => (val) => setInputs((prev) => ({ ...prev, [key]: val }));
 
   const result = useMemo(() => {
-    try { return calculateDCF(inputs); } catch { return null; }
+    try { return calculateDCF(inputs); } catch (e) { console.error('DCF calc error:', e); return null; }
   }, [inputs]);
   const sensitivity = useMemo(() => {
-    try { return calculateSensitivity(inputs, currentPrice); } catch { return null; }
+    try { return calculateSensitivity(inputs, currentPrice); } catch { return []; }
   }, [inputs, currentPrice]);
 
   const chartData = result ? result.rows.map((r) => ({
