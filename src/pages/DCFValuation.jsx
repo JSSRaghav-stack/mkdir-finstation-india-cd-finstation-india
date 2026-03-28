@@ -120,12 +120,106 @@ const SECTOR_DCF_DEFAULTS = {
   'Cement': { growthRate1to3: 12, growthRate4to5: 8, ebitdaMargin: 20, depreciation: 6, taxRate: 25, capex: 10, changeWC: 2, wacc: 11, terminalGrowthRate: 4 },
 };
 
+// ── Build DCF inputs from live stock data ─────────────────────────────────────
+// Priority: actual financial data > sector defaults > global defaults
+function buildInputsFromLive(data, stockInfo) {
+  // 1. Revenue (₹ Cr) — revenueCr is direct Cr, revenue is revenueCr×100 (internal units)
+  const revenueCr = data.revenueCr && data.revenueCr > 10
+    ? Math.round(data.revenueCr)
+    : data.revenue && data.revenue > 1000
+      ? Math.round(data.revenue / 100)       // internal: Cr×100 → Cr
+      : null;
+  const baseRevenue = revenueCr ?? DEFAULT_INPUTS.baseRevenue;
+
+  // 2. Sector defaults — fuzzy match Yahoo/AV sector string
+  const rawSector = data.sector || stockInfo?.sector || '';
+  const mappedSector = detectSector(rawSector) || stockInfo?.sector;
+  const SD = SECTOR_DCF_DEFAULTS[mappedSector] || {};
+
+  // 3. EBITDA margin — prefer actual Screener OPM, then sector default
+  const actualMargin = data.opmPercent ?? data.ebitdaMargin;
+  const ebitdaMargin = (typeof actualMargin === 'number' && actualMargin > 3 && actualMargin < 80)
+    ? Math.round(actualMargin * 10) / 10
+    : SD.ebitdaMargin ?? DEFAULT_INPUTS.ebitdaMargin;
+
+  // 4. Net Debt (₹ Cr) — CORRECT priority chain:
+  //    a) Balance sheet: Borrowings - Cash (most reliable)
+  //    b) D/E × Shareholders' Equity (if equity known)
+  //    c) D/E × (NetProfit × assumed P/E proxy) — rough
+  //    d) Sector-agnostic default
+  let netDebt = DEFAULT_INPUTS.netDebt;
+  if (data.totalBorrowings != null) {
+    // May be negative (net cash position) — that's fine, equity += |net cash|
+    netDebt = Math.round((data.totalBorrowings || 0) - (data.cashAndEquivalents || 0));
+  } else if (data.debtEquity != null && data.shareholderEquity != null && data.shareholderEquity > 0) {
+    netDebt = Math.round(data.debtEquity * data.shareholderEquity);
+  } else if (data.debtEquity != null && data.netProfitCr != null && data.netProfitCr > 0) {
+    // Proxy: Net Debt ≈ D/E × (NetProfit × sector P/E estimate of ~15)
+    netDebt = Math.round(data.debtEquity * data.netProfitCr * 15);
+  } else if (data.debtEquity != null && revenueCr != null) {
+    // Last resort: rough D/E based on revenue scale
+    netDebt = Math.round(data.debtEquity * revenueCr * 0.15);
+  }
+
+  // 5. Shares outstanding (crore shares) = MarketCap(Cr) / Price(₹)
+  const shares = data.marketCapCr > 0 && data.price > 0
+    ? Math.max(1, Math.round(data.marketCapCr / data.price * 100) / 100)
+    : DEFAULT_INPUTS.sharesOutstanding;
+
+  return {
+    baseRevenue,
+    sharesOutstanding: shares,
+    netDebt,
+    ebitdaMargin,
+    growthRate1to3:    SD.growthRate1to3    ?? DEFAULT_INPUTS.growthRate1to3,
+    growthRate4to5:    SD.growthRate4to5    ?? DEFAULT_INPUTS.growthRate4to5,
+    depreciation:      SD.depreciation      ?? DEFAULT_INPUTS.depreciation,
+    taxRate:           SD.taxRate           ?? DEFAULT_INPUTS.taxRate,
+    capex:             SD.capex             ?? DEFAULT_INPUTS.capex,
+    changeWC:          SD.changeWC          ?? DEFAULT_INPUTS.changeWC,
+    wacc:              SD.wacc              ?? DEFAULT_INPUTS.wacc,
+    terminalGrowthRate: SD.terminalGrowthRate ?? DEFAULT_INPUTS.terminalGrowthRate,
+  };
+}
+
+// ── Fuzzy sector mapper: converts Yahoo/AV strings → SECTOR_DCF_DEFAULTS keys ──
+function detectSector(raw) {
+  if (!raw) return null;
+  const s = raw.toLowerCase();
+  if (s.includes('bank'))                                              return 'Banking';
+  if (s.includes('pharma') || s.includes('drug') || s.includes('biotech') ||
+      s.includes('healthcare') || s.includes('medicine') || s.includes('hospital')) return 'Pharmaceuticals';
+  if (s.includes('software') || s.includes(' it ') || s.includes('information tech') ||
+      s.includes('tech mahindra') || s.includes('tcs') || s.includes('infosys') ||
+      s.includes('computer') || s.includes('data processing'))        return 'Information Technology';
+  if (s.includes('fmcg') || s.includes('consumer staple') || s.includes('household') ||
+      s.includes('personal product') || s.includes('packaged food'))  return 'FMCG';
+  if (s.includes('auto') || s.includes('vehicle') || s.includes('motor') ||
+      s.includes('automobile'))                                        return 'Automobile';
+  if (s.includes('telecom') || s.includes('wireless') || s.includes('communication service')) return 'Telecom';
+  if (s.includes('cement'))                                           return 'Cement';
+  if (s.includes('steel') || s.includes('metal') || s.includes('mining') ||
+      s.includes('mineral') || s.includes('aluminium') || s.includes('copper'))      return 'Metals & Mining';
+  if (s.includes('oil') || s.includes('gas') || s.includes('petroleum') ||
+      s.includes('refin') || s.includes('natural gas'))               return 'Oil & Gas';
+  if (s.includes('power') || s.includes('electric') || s.includes('renewable') ||
+      s.includes('energy'))                                            return 'Utilities';
+  if (s.includes('infra') || s.includes('construct') || s.includes('realty') ||
+      s.includes('real estate') || s.includes('engineering'))         return 'Infrastructure';
+  if (s.includes('nbfc') || s.includes('financial service') || s.includes('insurance') ||
+      s.includes('asset management') || s.includes('capital market'))  return 'NBFC';
+  if (s.includes('consumer discret') || s.includes('retail') ||
+      s.includes('leisure') || s.includes('specialty'))               return 'Consumer Discretionary';
+  return null;
+}
+
 export default function DCFValuation() {
   const [selectedStock, setSelectedStock] = useState('');
   const [inputs, setInputs] = useState(DEFAULT_INPUTS);
   const [currentPrice, setCurrentPrice] = useState(2847);
   const [fetchingStock, setFetchingStock] = useState(false);
   const [dataSource, setDataSource] = useState('');
+  const [liveDataInfo, setLiveDataInfo] = useState(null); // debug: what came from live
 
   const handleStockChange = async (ticker) => {
     setSelectedStock(ticker);
@@ -133,56 +227,35 @@ export default function DCFValuation() {
       setInputs(DEFAULT_INPUTS);
       setCurrentPrice(2847);
       setDataSource('');
+      setLiveDataInfo(null);
       return;
     }
 
     setFetchingStock(true);
     setDataSource('');
 
-    // Helper to compute inputs from financial data
-    const buildInputs = (data, sector) => {
-      const sectorDefaults = SECTOR_DCF_DEFAULTS[sector] || {};
-      const revenue = data.revenue > 0 ? Math.max(1, Math.round(data.revenue / 100)) : DEFAULT_INPUTS.baseRevenue;
-      const shares = data.marketCapCr > 0 && data.price > 0
-        ? Math.max(1, Math.round(data.marketCapCr / data.price))
-        : DEFAULT_INPUTS.sharesOutstanding;
-      const debtEquityNum = typeof data.debtEquity === 'number' ? data.debtEquity : 0;
-      // Use actual balance sheet figures when available; otherwise estimate from D/E
-      const netDebt = data.totalBorrowings != null
-        ? Math.max(0, Math.round((data.totalBorrowings || 0) - (data.cashAndEquivalents || 0)))
-        : debtEquityNum > 0 && data.marketCapCr > 0
-          ? Math.round(debtEquityNum / (1 + debtEquityNum) * data.marketCapCr)
-          : DEFAULT_INPUTS.netDebt;
-      return {
-        baseRevenue: revenue,
-        sharesOutstanding: shares,
-        netDebt: netDebt > 0 ? netDebt : DEFAULT_INPUTS.netDebt,
-        ebitdaMargin: typeof data.ebitdaMargin === 'number' ? data.ebitdaMargin : (sectorDefaults.ebitdaMargin || DEFAULT_INPUTS.ebitdaMargin),
-        growthRate1to3: sectorDefaults.growthRate1to3 || DEFAULT_INPUTS.growthRate1to3,
-        growthRate4to5: sectorDefaults.growthRate4to5 || DEFAULT_INPUTS.growthRate4to5,
-        depreciation: sectorDefaults.depreciation || DEFAULT_INPUTS.depreciation,
-        taxRate: sectorDefaults.taxRate || DEFAULT_INPUTS.taxRate,
-        capex: sectorDefaults.capex || DEFAULT_INPUTS.capex,
-        changeWC: sectorDefaults.changeWC ?? DEFAULT_INPUTS.changeWC,
-        wacc: sectorDefaults.wacc || DEFAULT_INPUTS.wacc,
-        terminalGrowthRate: sectorDefaults.terminalGrowthRate || DEFAULT_INPUTS.terminalGrowthRate,
-      };
-    };
-
     const stockInfo = STOCK_LIST.find((s) => s.ticker === ticker);
-    const sector = stockInfo?.sector || 'Equity';
 
     try {
       const live = await fetchStockDetail(ticker);
       if (live && live.price > 0) {
         setCurrentPrice(live.price);
-        setInputs(buildInputs(live, live.sector || sector));
+        setInputs(buildInputsFromLive(live, stockInfo));
+        setLiveDataInfo({
+          revenue: live.revenueCr,
+          ebitdaMargin: live.ebitdaMargin ?? live.opmPercent,
+          netDebt: (live.totalBorrowings ?? 0) - (live.cashAndEquivalents ?? 0),
+          shares: live.marketCapCr > 0 && live.price > 0 ? Math.round(live.marketCapCr / live.price * 100) / 100 : null,
+          sector: detectSector(live.sector || stockInfo?.sector) || stockInfo?.sector,
+        });
         setDataSource('live');
       } else {
         setDataSource('default');
+        setLiveDataInfo(null);
       }
     } catch {
       setDataSource('default');
+      setLiveDataInfo(null);
     }
     setFetchingStock(false);
   };
@@ -236,6 +309,32 @@ export default function DCFValuation() {
           )}
           {dataSource === 'default' && (
             <div className="mt-1 text-xs" style={{ color: '#94a3b8' }}>Using default assumptions</div>
+          )}
+          {/* Live data debug card — shows what was auto-filled */}
+          {dataSource === 'live' && liveDataInfo && (
+            <div className="mt-2 rounded-lg p-2" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
+              <div className="text-xs font-semibold mb-1" style={{ color: '#4ade80' }}>Auto-filled from Screener</div>
+              <div className="space-y-0.5">
+                {liveDataInfo.revenue ? (
+                  <div className="flex justify-between text-xs"><span style={{ color: '#64748b' }}>Revenue</span><span style={{ color: '#e2e8f0' }}>₹{Math.round(liveDataInfo.revenue).toLocaleString('en-IN')} Cr</span></div>
+                ) : <div className="text-xs" style={{ color: '#f87171' }}>Revenue: not found (using default)</div>}
+                {liveDataInfo.ebitdaMargin != null && (
+                  <div className="flex justify-between text-xs"><span style={{ color: '#64748b' }}>OPM</span><span style={{ color: '#e2e8f0' }}>{liveDataInfo.ebitdaMargin?.toFixed(1)}%</span></div>
+                )}
+                {liveDataInfo.shares != null && (
+                  <div className="flex justify-between text-xs"><span style={{ color: '#64748b' }}>Shares</span><span style={{ color: '#e2e8f0' }}>{liveDataInfo.shares?.toFixed(1)} Cr</span></div>
+                )}
+                <div className="flex justify-between text-xs">
+                  <span style={{ color: '#64748b' }}>Net Debt</span>
+                  <span style={{ color: liveDataInfo.netDebt < 0 ? '#4ade80' : '#e2e8f0' }}>
+                    {liveDataInfo.netDebt < 0 ? 'Net Cash ₹' + Math.abs(Math.round(liveDataInfo.netDebt)).toLocaleString('en-IN') : '₹' + Math.round(liveDataInfo.netDebt).toLocaleString('en-IN')} Cr
+                  </span>
+                </div>
+                {liveDataInfo.sector && (
+                  <div className="flex justify-between text-xs"><span style={{ color: '#64748b' }}>Sector</span><span style={{ color: '#e2e8f0' }}>{liveDataInfo.sector}</span></div>
+                )}
+              </div>
+            </div>
           )}
           {fetchingStock && (
             <div className="mt-1 text-xs" style={{ color: '#64748b' }}>Fetching data...</div>
