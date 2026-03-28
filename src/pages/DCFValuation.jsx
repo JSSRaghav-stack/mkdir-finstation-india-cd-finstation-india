@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
+import { STOCK_LIST } from '../data/mockData.js';
 import { calculateDCF, calculateSensitivity } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
 import { fetchStockDetail } from '../utils/api.js';
@@ -169,29 +169,20 @@ export default function DCFValuation() {
       };
     };
 
-    // Try mock data first
-    const mockD = DETAILED_STOCK_DATA[ticker];
     const stockInfo = STOCK_LIST.find((s) => s.ticker === ticker);
-    const sector = mockD?.sector || stockInfo?.sector || 'Equity';
+    const sector = stockInfo?.sector || 'Equity';
 
-    if (mockD) {
-      setCurrentPrice(mockD.price);
-      setInputs(buildInputs(mockD, sector));
-      setDataSource('mock');
-      setFetchingStock(false);
-      return;
-    }
-
-    // Try live data
     try {
       const live = await fetchStockDetail(ticker);
       if (live && live.price > 0) {
         setCurrentPrice(live.price);
         setInputs(buildInputs(live, live.sector || sector));
         setDataSource('live');
+      } else {
+        setDataSource('default');
       }
     } catch {
-      // leave defaults
+      setDataSource('default');
     }
     setFetchingStock(false);
   };
@@ -240,10 +231,11 @@ export default function DCFValuation() {
               <option key={s.ticker} value={s.ticker}>{s.name}</option>
             ))}
           </select>
-          {dataSource && (
-            <div className="mt-1 text-xs" style={{ color: dataSource === 'live' ? '#4ade80' : '#60a5fa' }}>
-              {dataSource === 'live' ? '● Live data loaded' : '● Mock data loaded'}
-            </div>
+          {dataSource === 'live' && (
+            <div className="mt-1 text-xs" style={{ color: '#4ade80' }}>● Live data loaded</div>
+          )}
+          {dataSource === 'default' && (
+            <div className="mt-1 text-xs" style={{ color: '#94a3b8' }}>Using default assumptions</div>
           )}
           {fetchingStock && (
             <div className="mt-1 text-xs" style={{ color: '#64748b' }}>Fetching data...</div>
