@@ -191,81 +191,125 @@ function stripTags(str) {
   return str.replace(/<[^>]+>/g, '').trim();
 }
 
+// Parse a number string: handles negatives, commas, % signs
+function parseNum(str) {
+  if (str == null) return null;
+  const cleaned = String(str).replace(/[,%\s]/g, '').replace(/\s/g, '').trim();
+  const val = parseFloat(cleaned);
+  return isNaN(val) ? null : val;
+}
+
 function parseScreenerData(html) {
   const result = {};
 
-  // 1. Key ratios — Screener uses id="top-ratios" or class="company-ratios"
-  const ratiosMatch = html.match(/(?:id="top-ratios"|class="company-ratios")[^>]*>([\s\S]*?)<\/ul>/);
-  if (ratiosMatch) {
-    const liItems = ratiosMatch[1].match(/<li[\s\S]*?<\/li>/g) || [];
-    for (const li of liItems) {
-      const nameEl = li.match(/<span[^>]*class="name"[^>]*>([\s\S]*?)<\/span>/);
-      const numEl  = li.match(/<span[^>]*class="number"[^>]*>([\d.,]+)<\/span>/);
-      if (!nameEl || !numEl) continue;
-      const name  = stripTags(nameEl[1]).toLowerCase().trim();
-      const value = parseFloat(numEl[1].replace(/,/g, ''));
-      if (isNaN(value)) continue;
-      if (name.includes('market cap'))               result.marketCapCr    = value;
-      else if (name.includes('stock p/e') || name === 'p/e') result.pe = value;
-      else if (name === 'roe')                        result.roe            = value;
-      else if (name === 'roce')                       result.roce           = value;
-      else if (name.includes('dividend yield'))       result.dividendYield  = value;
-      else if (name.includes('book value'))           result.bookValue      = value;
+  // ── 1. Key Ratios ─────────────────────────────────────────────────────────
+  // Find the section by index to avoid premature </ul> match from nested lists
+  const trIdx  = html.search(/id=["']top-ratios["']/);
+  const crIdx  = html.search(/class=["'][^"']*company-ratios[^"']*["']/);
+  const ratiosSectionIdx = trIdx !== -1 ? trIdx : crIdx;
+
+  if (ratiosSectionIdx !== -1) {
+    // Take a chunk large enough to contain all ~10 ratios
+    const chunk = html.slice(ratiosSectionIdx, ratiosSectionIdx + 8000);
+
+    // Walk through <li>...</li> blocks using indexOf (handles nested </ul> correctly)
+    const liBlocks = [];
+    let pos = 0;
+    while (pos < chunk.length) {
+      const start = chunk.indexOf('<li', pos);
+      if (start === -1) break;
+      const end = chunk.indexOf('</li>', start);
+      if (end === -1) break;
+      liBlocks.push(chunk.slice(start, end + 5));
+      pos = end + 5;
+    }
+
+    for (const li of liBlocks) {
+      // Name: <span class="name">...</span>
+      const nameMatch = li.match(/<span[^>]*class="[^"]*\bname\b[^"]*"[^>]*>([\s\S]*?)<\/span>/);
+      // Number: allow negative sign, decimals, commas, optional %
+      const numMatch  = li.match(/<span[^>]*class="[^"]*\bnumber\b[^"]*"[^>]*>([-\d.,\s%]+)<\/span>/);
+      if (!nameMatch || !numMatch) continue;
+
+      const name  = stripTags(nameMatch[1]).toLowerCase().replace(/\s+/g, ' ').trim();
+      const value = parseNum(numMatch[1]);
+      if (value === null) continue;
+
+      if      (name.includes('market cap'))                                       result.marketCapCr  = value;
+      else if (name.includes('stock p/e') || name === 'p/e' || name === 'pe')    result.pe           = value;
+      else if (name === 'roe' || name.includes('return on equity'))               result.roe          = value;
+      else if (name === 'roce' || name.includes('return on capital'))             result.roce         = value;
+      else if (name.includes('dividend yield') || name.includes('div. yield'))   result.dividendYield = value;
+      else if (name.includes('book value'))                                       result.bookValue    = value;
+      else if (name === 'face value' || name === 'fv')                            result.faceValue    = value;
+      else if (name === 'eps' || name.includes('earning per share'))              result.epsKR        = value; // key-ratio EPS (may differ from P&L TTM)
     }
   }
 
-  // 2. Balance sheet data
+  // ── 2. Balance Sheet (most recent column = last non-empty td) ─────────────
   const bsIdx = html.indexOf('id="balance-sheet"');
   if (bsIdx !== -1) {
-    const bsChunk = html.slice(bsIdx, bsIdx + 20000);
-    const bsTableMatch = bsChunk.match(/<table[^>]*>([\s\S]*?)<\/table>/);
-    if (bsTableMatch) {
-      const bsRows = bsTableMatch[1].match(/<tr[^>]*>([\s\S]*?)<\/tr>/g) || [];
-      for (const row of bsRows) {
-        const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
-          .map(m => stripTags(m[1]).replace(/,/g, '').trim());
-        if (cells.length < 2) continue;
-        const label = cells[0].toLowerCase().replace(/\s+/g, '');
-        const val = parseFloat(cells[1]) || null;
-        if (label.includes('total liabilities') || label === 'totalliabilities') result.totalLiabilities = val;
-        else if (label.includes('shareholder') || label === 'equity') result.shareholderEquity = val;
-        else if (label.includes('borrowing')) result.totalBorrowings = val;
-        else if (label.includes('cashandcash') || label.includes('cash&')) result.cashAndEquivalents = val;
-      }
-      if (result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
-        result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
+    const bsChunk = html.slice(bsIdx, bsIdx + 25000);
+    const rows = bsChunk.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
+    for (const row of rows) {
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+        .map(m => stripTags(m[1]).replace(/,/g, '').trim());
+      if (cells.length < 2) continue;
+      const label = cells[0].toLowerCase().replace(/\s+/g, '');
+      // Use last non-empty cell (most recent year in Screener)
+      const recent = [...cells].reverse().find(c => c && parseFloat(c) !== 0 && !isNaN(parseFloat(c)));
+      const val = recent != null ? parseNum(recent) : null;
+      if (val === null) continue;
+      if      (label.includes('borrowing'))                                   result.totalBorrowings  = val;
+      else if (label.includes('shareholder') || label.includes('networth') ||
+               label === 'equity' || label.includes('shareholders'))          result.shareholderEquity = val;
+      else if (label.includes('cashandcash') || label.includes('cash&') ||
+               label === 'cashandequivalents')                                result.cashAndEquivalents = val;
+    }
+    if (result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
+      result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
+    }
+  }
+
+  // ── 3. P&L Table — find TTM column dynamically ────────────────────────────
+  const plIdx = html.indexOf('id="profit-loss"');
+  if (plIdx !== -1) {
+    const plChunk = html.slice(plIdx, plIdx + 30000);
+
+    // Detect TTM column index from thead
+    let ttmColIdx = 1;
+    const thead = plChunk.match(/<thead[\s\S]*?<\/thead>/);
+    if (thead) {
+      const ths = [...thead[0].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)]
+        .map(m => stripTags(m[1]).toLowerCase().trim());
+      const ti = ths.findIndex(h => h === 'ttm' || h === 'trailing' || h.includes('ttm'));
+      if (ti > 0) ttmColIdx = ti;
+    }
+
+    const rows = plChunk.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
+    for (const row of rows) {
+      const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
+        .map(m => stripTags(m[1]).replace(/,/g, '').trim());
+      if (cells.length < 2) continue;
+      const label = cells[0].toLowerCase().replace(/\s+/g, '');
+      const ttm   = cells[Math.min(ttmColIdx, cells.length - 1)] || cells[1];
+
+      if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other') && !label.includes('growth')) {
+        result.revenueCr   = parseNum(ttm);
+      } else if ((label.includes('netprofit') || label.includes('profitaftertax') || label === 'profit') && !label.includes('growth')) {
+        result.netProfitCr = parseNum(ttm);
+      } else if (label.startsWith('opm') || label.startsWith('operatingprofit%')) {
+        result.opmPercent  = parseNum(ttm.replace('%', ''));
+      } else if (label === 'eps' || label.startsWith('eps(')) {
+        result.eps         = parseNum(ttm);
+      } else if (label.includes('debttoeq') || label === 'd/e' || label.includes('debteq')) {
+        result.debtEquity  = parseNum(ttm);
       }
     }
   }
 
-  // 3. P&L table — TTM column (most recent = index 1)
-  const plIdx = html.indexOf('id="profit-loss"');
-  if (plIdx !== -1) {
-    const plChunk = html.slice(plIdx, plIdx + 25000);
-    const tableMatch = plChunk.match(/<table[^>]*>([\s\S]*?)<\/table>/);
-    if (tableMatch) {
-      const rows = tableMatch[1].match(/<tr[^>]*>([\s\S]*?)<\/tr>/g) || [];
-      for (const row of rows) {
-        const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
-          .map(m => stripTags(m[1]).replace(/,/g, '').trim());
-        if (cells.length < 2) continue;
-        const label = cells[0].toLowerCase().replace(/\s+/g, '');
-        // Screener shows most recent year FIRST (index 1), not last
-        const ttm   = cells[1];
-        if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other') && !label.includes('growth')) {
-          result.revenueCr   = parseFloat(ttm) || null;
-        } else if (label.includes('netprofit') || label === 'profit') {
-          result.netProfitCr = parseFloat(ttm) || null;
-        } else if (label.startsWith('opm')) {
-          result.opmPercent  = parseFloat(ttm.replace('%', '')) || null;
-        } else if (label === 'eps') {
-          result.eps = parseFloat(ttm) || null;
-        } else if (label.includes('debttoeq') || label.includes('d/e') || label.includes('debteq')) {
-          result.debtEquity = parseFloat(ttm) || null;
-        }
-      }
-    }
-  }
+  // Use key-ratio EPS if P&L didn't give one
+  if (result.eps == null && result.epsKR != null) result.eps = result.epsKR;
 
   return result;
 }
