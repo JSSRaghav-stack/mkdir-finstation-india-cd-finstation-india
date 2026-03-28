@@ -152,7 +152,69 @@ async function fetchGiftNiftyFromYahooFinance() {
   return null;
 }
 
-// Source 1: NSE's live blob storage (no auth required)
+// Source 1: MoneyControl price feed API
+async function fetchGiftNiftyFromMoneyControl() {
+  try {
+    // Try MoneyControl price API
+    const endpoints = [
+      'https://priceapi.moneycontrol.com/pricefeed/nse_ifsc/C/%5EGIFTNIFTY',
+      'https://priceapi.moneycontrol.com/pricefeed/nse_ifsc/D/%5EGIFTNIFTY',
+    ];
+    const mcHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.moneycontrol.com/',
+      'Origin': 'https://www.moneycontrol.com',
+    };
+    for (const url of endpoints) {
+      try {
+        const res = await httpsGet(url, mcHeaders, 8000);
+        if (res.status !== 200) continue;
+        const data = JSON.parse(res.data);
+        // MoneyControl price API response structure
+        const d = data?.data || data;
+        const rawPrice = d?.pricecurrent ?? d?.last ?? d?.close ?? d?.lastprice;
+        const rawChange = d?.percentchange ?? d?.pricechangepercent ?? d?.pChange;
+        const rawPoints = d?.pricechange ?? d?.change ?? d?.pointchange;
+        const value = parseFloat(String(rawPrice || '').replace(/,/g, ''));
+        if (value > 5000) {
+          return {
+            value,
+            change: Math.round((parseFloat(rawChange || 0)) * 100) / 100,
+            points: Math.round((parseFloat(rawPoints || 0)) * 100) / 100,
+            source: 'MoneyControl',
+          };
+        }
+      } catch {}
+    }
+    // Fallback: scrape MoneyControl global indices page
+    const pageRes = await httpsGet(
+      'https://www.moneycontrol.com/markets/global-indices/',
+      { ...mcHeaders, 'Accept': 'text/html,application/xhtml+xml,*/*' },
+      10000
+    );
+    const html = pageRes.data || '';
+    // Look for GIFT Nifty price in the page
+    const patterns = [
+      /GIFT[^<]*?<[^>]+>[\s]*?([\d,]+\.?\d*)/i,
+      /giftnifty[^<]*?([\d,]+\.?\d*)/i,
+      /"GIFTNIFTY"[^}]*?"last"\s*:\s*"?([\d,\.]+)"?/i,
+    ];
+    for (const pat of patterns) {
+      const m = html.match(pat);
+      if (m) {
+        const value = parseFloat(m[1].replace(/,/g, ''));
+        if (value > 5000) return { value, change: 0, points: 0, source: 'MoneyControl' };
+      }
+    }
+  } catch (e) {
+    console.log('Gift Nifty MoneyControl error:', e.message);
+  }
+  return null;
+}
+
+// Source 2: NSE's live blob storage (no auth required)
 async function fetchGiftNiftyFromNSEBlob() {
   try {
     const res = await httpsGet(
@@ -277,12 +339,19 @@ async function fetchGiftNiftyData() {
     return { ...giftNiftyCache, cached: true };
   }
 
-  // Try all sources: Yahoo first (most reliable), then NSE blob, then Google, then NSE API
+  // Try all sources: Yahoo → MoneyControl → NSE blob → Google → NSE API
   const yahooResult = await fetchGiftNiftyFromYahooFinance();
   if (yahooResult) {
     giftNiftyCache = yahooResult;
     giftNiftyCacheTime = now;
     return yahooResult;
+  }
+
+  const mcResult = await fetchGiftNiftyFromMoneyControl();
+  if (mcResult) {
+    giftNiftyCache = mcResult;
+    giftNiftyCacheTime = now;
+    return mcResult;
   }
 
   const [blobData, googleData] = await Promise.all([

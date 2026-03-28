@@ -258,48 +258,51 @@ export default function Dashboard() {
         }}>{isLive ? '● Live (10s refresh)' : '● Mock Data'}</span>
       </div>
 
-      {/* KPI cards — horizontal scroll on mobile, flex row on desktop */}
-      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', paddingBottom: 4 }} className="mb-5">
-        <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
-          <div style={{ width: 155 }}>
-            <KPICard label="Nifty 50" subtitle="NSE · Spot" symbol="^NSEI"
-              value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
-              change={indices.nifty?.change??0}
-              changeLabel={`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`}
-              loading={loading} onClick={() => setChartModal({symbol:'^NSEI',label:'Nifty 50'})} />
-          </div>
-          <div style={{ width: 155 }}>
-            <KPICard label="Sensex" subtitle="BSE · Spot" symbol="^BSESN"
-              value={loading ? '—' : (indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
-              change={indices.sensex?.change??0}
-              changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
-              loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
-          </div>
-          <div style={{ width: 165 }}>
-            <KPICard label="GIFT Nifty" subtitle="NSE IFSC · Futures"
-              badge={indices.giftNifty
-                ? { text: '● LIVE', bg: 'rgba(34,197,94,0.12)', color: '#22c55e' }
-                : { text: 'FUTURES', bg: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
-              value={loading ? '—' : (indices.giftNifty
-                ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})
-                : 'N/A')}
-              change={indices.giftNifty?.change??0}
-              changeLabel={indices.giftNifty
-                ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`
-                : ''}
-              loading={loading} />
-          </div>
-          <div style={{ width: 130 }}>
-            <KPICard label="India VIX" subtitle="Volatility" symbol="^INDIAVIX"
-              value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
-              change={indices.vix?.change??0} loading={loading}
-              onClick={() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'})} />
-          </div>
-          <div style={{ width: 130 }}>
-            <KPICard label="USD / INR" subtitle="Forex" symbol="USDINR=X"
-              value={loading ? '—' : `₹${(indices.usdinr?.value??0).toFixed(2)}`}
-              change={indices.usdinr?.change??0} loading={loading}
-              onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />
+      {/* KPI cards — equal 5-col grid on desktop, horizontal scroll on mobile */}
+      <div className="mb-5">
+        {/* Desktop: equal grid */}
+        <div className="hidden md:grid gap-3" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+          <KPICard label="Nifty 50" subtitle="NSE · Spot" symbol="^NSEI"
+            value={loading ? '—' : (indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
+            change={indices.nifty?.change??0}
+            changeLabel={`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`}
+            loading={loading} onClick={() => setChartModal({symbol:'^NSEI',label:'Nifty 50'})} />
+          <KPICard label="Sensex" subtitle="BSE · Spot" symbol="^BSESN"
+            value={loading ? '—' : (indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})}
+            change={indices.sensex?.change??0}
+            changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
+            loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
+          <KPICard label="GIFT Nifty" subtitle="NSE IFSC · Futures"
+            badge={indices.giftNifty
+              ? { text: '● LIVE', bg: 'rgba(34,197,94,0.12)', color: '#22c55e' }
+              : { text: 'FUTURES', bg: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
+            value={loading ? '—' : (indices.giftNifty
+              ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})
+              : 'N/A')}
+            change={indices.giftNifty?.change??0}
+            changeLabel={indices.giftNifty
+              ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`
+              : ''}
+            loading={loading} />
+          <KPICard label="India VIX" subtitle="Volatility" symbol="^INDIAVIX"
+            value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
+            change={indices.vix?.change??0} loading={loading}
+            onClick={() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'})} />
+          <KPICard label="USD / INR" subtitle="Forex" symbol="USDINR=X"
+            value={loading ? '—' : `₹${(indices.usdinr?.value??0).toFixed(2)}`}
+            change={indices.usdinr?.change??0} loading={loading}
+            onClick={() => setChartModal({symbol:'USDINR=X',label:'USD / INR'})} />
+        </div>
+        {/* Mobile: horizontal scroll */}
+        <div className="md:hidden" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', paddingBottom: 4 }}>
+          <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+            {[
+              { label:'Nifty 50', subtitle:'NSE · Spot', symbol:'^NSEI', value:loading?'—':(indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}), change:indices.nifty?.change??0, changeLabel:`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`, onClick:() => setChartModal({symbol:'^NSEI',label:'Nifty 50'}) },
+              { label:'Sensex', subtitle:'BSE · Spot', symbol:'^BSESN', value:loading?'—':(indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}), change:indices.sensex?.change??0, changeLabel:`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`, onClick:() => setChartModal({symbol:'^BSESN',label:'Sensex'}) },
+              { label:'GIFT Nifty', subtitle:'NSE IFSC · Futures', badge:indices.giftNifty?{text:'● LIVE',bg:'rgba(34,197,94,0.12)',color:'#22c55e'}:{text:'FUTURES',bg:'rgba(99,102,241,0.12)',color:'#818cf8'}, value:loading?'—':(indices.giftNifty?(indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}):'N/A'), change:indices.giftNifty?.change??0, changeLabel:indices.giftNifty?`(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`:'' },
+              { label:'India VIX', subtitle:'Volatility', symbol:'^INDIAVIX', value:loading?'—':(indices.vix?.value??0).toFixed(2), change:indices.vix?.change??0, onClick:() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'}) },
+              { label:'USD / INR', subtitle:'Forex', symbol:'USDINR=X', value:loading?'—':`₹${(indices.usdinr?.value??0).toFixed(2)}`, change:indices.usdinr?.change??0, onClick:() => setChartModal({symbol:'USDINR=X',label:'USD / INR'}) },
+            ].map((p, i) => <div key={i} style={{ width: 150 }}><KPICard {...p} loading={loading} /></div>)}
           </div>
         </div>
       </div>

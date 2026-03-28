@@ -16,11 +16,11 @@ import DCFValuation from './pages/DCFValuation.jsx';
 import LBOAnalyzer from './pages/LBOAnalyzer.jsx';
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard',     icon: LayoutDashboard, short: 'Home'    },
-  { id: 'company',   label: 'Company Intel', icon: Search,          short: 'Company' },
-  { id: 'ai',        label: 'AI Research',   icon: BrainCircuit,    short: 'AI'      },
-  { id: 'dcf',       label: 'DCF Valuation', icon: TrendingUp,      short: 'DCF'     },
-  { id: 'lbo',       label: 'LBO Analyzer',  icon: Briefcase,       short: 'LBO'     },
+  { id: 'dashboard', label: 'Dashboard',     icon: LayoutDashboard, short: 'Home',    color: '#6366f1', glow: 'rgba(99,102,241,0.35)',  grad: 'linear-gradient(135deg,#6366f1,#818cf8)', tag: 'LIVE'   },
+  { id: 'company',   label: 'Company Intel', icon: Search,          short: 'Company', color: '#06b6d4', glow: 'rgba(6,182,212,0.35)',   grad: 'linear-gradient(135deg,#06b6d4,#22d3ee)', tag: 'NSE'    },
+  { id: 'ai',        label: 'AI Research',   icon: BrainCircuit,    short: 'AI',      color: '#a855f7', glow: 'rgba(168,85,247,0.35)',  grad: 'linear-gradient(135deg,#a855f7,#c084fc)', tag: 'GPT-4'  },
+  { id: 'dcf',       label: 'DCF Valuation', icon: TrendingUp,      short: 'DCF',     color: '#10b981', glow: 'rgba(16,185,129,0.35)', grad: 'linear-gradient(135deg,#10b981,#34d399)', tag: 'MODEL'  },
+  { id: 'lbo',       label: 'LBO Analyzer',  icon: Briefcase,       short: 'LBO',     color: '#f59e0b', glow: 'rgba(245,158,11,0.35)', grad: 'linear-gradient(135deg,#f59e0b,#fbbf24)', tag: 'PE'     },
 ];
 
 const SUBTITLES = {
@@ -299,8 +299,8 @@ export default function App() {
           </div>
 
           {/* Navigation */}
-          <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+          <nav style={{ flex: 1, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {NAV_ITEMS.map(({ id, label, icon: Icon, color, glow, grad, tag }) => {
               const active = activeSection === id;
               return (
                 <button
@@ -309,28 +309,48 @@ export default function App() {
                   className={`nav-btn${active ? ' active' : ''}`}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', borderRadius: 10, width: '100%', textAlign: 'left',
-                    border: active ? '1px solid var(--border-act)' : '1px solid transparent',
-                    background: active ? 'rgba(99,102,241,0.12)' : 'transparent',
-                    color: active ? '#a5b4fc' : 'var(--text-3)',
-                    fontSize: 13, fontWeight: active ? 600 : 500,
+                    padding: '10px 12px', borderRadius: 12, width: '100%', textAlign: 'left',
+                    border: active ? `1px solid ${color}55` : '1px solid transparent',
+                    background: active
+                      ? `linear-gradient(135deg, ${color}18, ${color}08)`
+                      : 'transparent',
+                    color: active ? '#f1f5f9' : '#64748b',
+                    fontSize: 13, fontWeight: active ? 700 : 500,
                     cursor: 'pointer',
+                    boxShadow: active ? `0 0 16px ${glow}` : 'none',
+                    transition: 'all 0.18s ease',
+                    position: 'relative',
+                    overflow: 'hidden',
                   }}
                 >
-                  <Icon
-                    size={16}
-                    strokeWidth={active ? 2.2 : 1.8}
-                    color={active ? '#818cf8' : '#475569'}
-                    style={{ flexShrink: 0 }}
-                  />
-                  <span style={{ flex: 1 }}>{label}</span>
+                  {/* Active left accent bar */}
                   {active && (
                     <div style={{
-                      width: 5, height: 5, borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #6366f1, #a78bfa)',
-                      boxShadow: '0 0 6px rgba(99,102,241,0.6)',
+                      position: 'absolute', left: 0, top: '20%', bottom: '20%', width: 3,
+                      background: grad, borderRadius: '0 3px 3px 0',
+                      boxShadow: `0 0 8px ${glow}`,
                     }} />
                   )}
+                  {/* Icon container */}
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: active ? grad : `${color}15`,
+                    boxShadow: active ? `0 0 10px ${glow}` : 'none',
+                    transition: 'all 0.18s ease',
+                  }}>
+                    <Icon size={15} strokeWidth={active ? 2.3 : 1.8} color={active ? '#fff' : color} />
+                  </div>
+                  <span style={{ flex: 1, letterSpacing: active ? '-0.01em' : '0' }}>{label}</span>
+                  {/* Tag pill */}
+                  <span style={{
+                    fontSize: 8, fontWeight: 700, padding: '2px 5px', borderRadius: 4,
+                    background: active ? grad : `${color}18`,
+                    color: active ? '#fff' : color,
+                    letterSpacing: '0.05em',
+                    opacity: active ? 1 : 0.7,
+                    boxShadow: active ? `0 0 6px ${glow}` : 'none',
+                  }}>{tag}</span>
                 </button>
               );
             })}
@@ -420,46 +440,52 @@ export default function App() {
         {/* ── Bottom nav — mobile only ── */}
         <nav className="md:hidden" style={{
           position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-          background: 'var(--bg-surface)', borderTop: '1px solid var(--border)',
-          display: 'flex', alignItems: 'stretch', height: 58,
+          background: 'rgba(10,10,15,0.96)', backdropFilter: 'blur(12px)',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex', alignItems: 'stretch', height: 62,
         }}>
-          {NAV_ITEMS.map(({ id, label, icon: Icon, short }) => {
+          {NAV_ITEMS.map(({ id, label, icon: Icon, short, color, glow, grad }) => {
             const active = activeSection === id;
             return (
               <button
                 key={id}
-                className="bot-btn"
                 onClick={() => handleNavClick(id)}
                 style={{
                   flex: 1, display: 'flex', flexDirection: 'column',
                   alignItems: 'center', justifyContent: 'center',
-                  gap: 4, padding: '4px 2px',
+                  gap: 3, padding: '4px 2px',
                   background: 'transparent', border: 'none',
                   cursor: 'pointer', position: 'relative',
-                  color: active ? '#818cf8' : '#475569',
                 }}
                 aria-label={label}
                 aria-current={active ? 'page' : undefined}
               >
-                {/* Active indicator */}
+                {/* Active top bar */}
                 {active && (
                   <div style={{
-                    position: 'absolute', top: 0,
-                    left: '18%', right: '18%', height: 2,
-                    background: 'linear-gradient(90deg,#6366f1,#a78bfa)',
-                    borderRadius: '0 0 3px 3px',
+                    position: 'absolute', top: 0, left: '20%', right: '20%', height: 2,
+                    background: grad, borderRadius: '0 0 3px 3px',
+                    boxShadow: `0 0 8px ${glow}`,
                   }} />
                 )}
+                {/* Icon pill */}
                 <div style={{
-                  padding: '3px 10px', borderRadius: 8,
-                  background: active ? 'rgba(99,102,241,0.1)' : 'transparent',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  width: 36, height: 26, borderRadius: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: active ? grad : 'transparent',
+                  boxShadow: active ? `0 0 12px ${glow}` : 'none',
+                  transition: 'all 0.18s ease',
                 }}>
-                  <Icon size={18} strokeWidth={active ? 2.2 : 1.7} />
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 400, letterSpacing: '0.03em' }}>
-                    {short}
-                  </span>
+                  <Icon size={17} strokeWidth={active ? 2.3 : 1.7} color={active ? '#fff' : '#475569'} />
                 </div>
+                <span style={{
+                  fontSize: 9, fontWeight: active ? 800 : 400,
+                  color: active ? color : '#475569',
+                  letterSpacing: active ? '0.04em' : '0.01em',
+                  textTransform: active ? 'uppercase' : 'none',
+                }}>
+                  {short}
+                </span>
               </button>
             );
           })}
