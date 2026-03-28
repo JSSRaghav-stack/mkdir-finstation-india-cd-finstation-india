@@ -26,10 +26,16 @@ const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'd6u2f89r01qp1k9auq1gd6u2
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const INDIAN_API_KEY = process.env.INDIAN_API_KEY || 'sk-live-ykuBl3tx7N0UBnKIMzjcwWQdfoZZETSz0xS5Tkha';
 const INDIAN_API_BASE = 'https://stock.indianapi.in';
+const AV_API_KEY = process.env.AV_API_KEY || 'KY42CNVV87JF76K1';
+const AV_API_BASE = 'https://www.alphavantage.co';
 
 // ─── IndianAPI helpers ─────────────────────────────────────────────────────
 const indianApiCache = new Map();
 const INDIAN_API_TTL = 90 * 1000; // 90s cache (500 req/month limit)
+
+// ─── Alpha Vantage helpers ─────────────────────────────────────────────────
+const avCache = new Map();
+const AV_TTL = 5 * 60 * 1000; // 5-min cache (25 req/day free limit)
 
 async function fetchIndianAPI(endpoint, params = {}) {
   const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
@@ -41,6 +47,24 @@ async function fetchIndianAPI(endpoint, params = {}) {
   }, 12000);
   if (res.status !== 200) throw new Error(`IndianAPI ${res.status}`);
   return JSON.parse(res.data);
+}
+
+async function fetchAlphaVantage(func, symbol, extra = {}) {
+  const params = new URLSearchParams({
+    function: func,
+    symbol,
+    apikey: AV_API_KEY,
+    ...extra,
+  });
+  const url = `${AV_API_BASE}/query?${params}`;
+  const res = await httpsGet(url, {
+    'Accept': 'application/json',
+    'User-Agent': 'FinStation/1.0',
+  }, 15000);
+  if (res.status !== 200) throw new Error(`AlphaVantage ${res.status}`);
+  const data = JSON.parse(res.data);
+  if (data['Note'] || data['Information']) throw new Error('AlphaVantage rate limit hit');
+  return data;
 }
 
 // ─── Gift Nifty live data ──────────────────────────────────────────────────
@@ -1181,6 +1205,100 @@ const server = createServer(async (req, res) => {
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
 
+    } else if (pathname === '/api/alphavantage/overview') {
+      // Alpha Vantage OVERVIEW — company fundamentals
+      // symbol: NSE ticker e.g. RELIANCE.NS → tries RELIANCE.BSE then RELIANCE.NSE
+      const { symbol } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const base = symbol.replace(/\.(NS|BO|BSE|NSE)$/i, '');
+      const avSymbol = `${base}.BSE`; // Alpha Vantage Indian format
+      const cacheKey = `av_ov_${base.toLowerCase()}`;
+      const cached = avCache.get(cacheKey);
+      if (cached && (Date.now() - cached.t) < AV_TTL) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: cached.d, cached: true }));
+        return;
+      }
+      try {
+        const raw = await fetchAlphaVantage('OVERVIEW', avSymbol);
+        if (!raw.Symbol) throw new Error('No data for symbol');
+        // Normalise to standard format
+        const safe = (v) => (v && v !== 'None' && v !== '-' ? v : null);
+        const safeF = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+        const data = {
+          symbol:        safe(raw.Symbol),
+          name:          safe(raw.Name),
+          sector:        safe(raw.Sector),
+          industry:      safe(raw.Industry),
+          description:   safe(raw.Description),
+          marketCapCr:   raw.MarketCapitalization ? Math.round(parseFloat(raw.MarketCapitalization) / 10000000) : null,
+          pe:            safeF(raw.PERatio),
+          pb:            safeF(raw.PriceToBookRatio),
+          eps:           safeF(raw.EPS),
+          // ROE from AV is decimal (0.12 = 12%)
+          roe:           raw.ReturnOnEquityTTM ? Math.round(safeF(raw.ReturnOnEquityTTM) * 1000) / 10 : null,
+          // Div Yield from AV is decimal (0.02 = 2%)
+          dividendYield: raw.DividendYield ? Math.round(safeF(raw.DividendYield) * 10000) / 100 : null,
+          bookValue:     safeF(raw.BookValue),
+          // Revenue/NetIncome in absolute ₹ → convert to Cr
+          revenueCr:     raw.RevenueTTM ? Math.round(parseFloat(raw.RevenueTTM) / 10000000) : null,
+          netProfitCr:   raw.NetIncomeTTM ? Math.round(parseFloat(raw.NetIncomeTTM) / 10000000) : null,
+          // OPM from AV is decimal (0.18 = 18%)
+          opmPercent:    raw.OperatingMarginTTM ? Math.round(safeF(raw.OperatingMarginTTM) * 1000) / 10 : null,
+          high52w:       safeF(raw['52WeekHigh']),
+          low52w:        safeF(raw['52WeekLow']),
+          beta:          safeF(raw.Beta),
+          debtEquity:    safeF(raw.DebtToEquityRatio),
+          currentRatio:  safeF(raw.CurrentRatio),
+          evEbitda:      safeF(raw.EVToEBITDA),
+        };
+        avCache.set(cacheKey, { d: data, t: Date.now() });
+        if (avCache.size > 200) {
+          const oldest = [...avCache.entries()].sort((a, b) => a[1].t - b[1].t)[0];
+          avCache.delete(oldest[0]);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message, data: null }));
+      }
+
+    } else if (pathname === '/api/alphavantage/quote') {
+      // Alpha Vantage GLOBAL_QUOTE — real-time price
+      const { symbol } = query;
+      if (!symbol) throw new Error('symbol param required');
+      const base = symbol.replace(/\.(NS|BO|BSE|NSE)$/i, '');
+      const avSymbol = `${base}.BSE`;
+      const cacheKey = `av_q_${base.toLowerCase()}`;
+      const cached = avCache.get(cacheKey);
+      if (cached && (Date.now() - cached.t) < 60000) { // 1-min cache for quotes
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: cached.d, cached: true }));
+        return;
+      }
+      try {
+        const raw = await fetchAlphaVantage('GLOBAL_QUOTE', avSymbol);
+        const q = raw['Global Quote'] || {};
+        const data = {
+          price:     parseFloat(q['05. price']) || null,
+          open:      parseFloat(q['02. open']) || null,
+          high:      parseFloat(q['03. high']) || null,
+          low:       parseFloat(q['04. low']) || null,
+          prevClose: parseFloat(q['08. previous close']) || null,
+          change:    parseFloat(q['09. change']) || null,
+          changePct: parseFloat((q['10. change percent'] || '0').replace('%', '')) || null,
+          volume:    parseInt(q['06. volume']) || null,
+        };
+        if (!data.price) throw new Error('No quote data');
+        avCache.set(cacheKey, { d: data, t: Date.now() });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message, data: null }));
+      }
+
     } else if (pathname === '/api/indianapi/stock') {
       const { name } = query;
       if (!name) throw new Error('name param required');
@@ -1309,13 +1427,19 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n✅ FinStation Proxy Server running on http://localhost:${PORT}`);
-  console.log('   Market data  → Yahoo Finance (NSE/BSE)');
-  console.log('   Fundamentals → Yahoo Finance quoteSummary + Screener.in');
-  console.log('   Ratios       → Financial Modeling Prep (FMP)');
-  console.log('   News         → Finnhub + Yahoo Finance + Indian RSS (ET, MC, NDTV, Mint, BS)');
-  console.log('   15-20 min delayed market data — FREE\n');
-  if (FMP_API_KEY) console.log('   ✓ FMP API key loaded from environment');
-  if (FINNHUB_API_KEY) console.log('   ✓ Finnhub API key loaded from environment');
-  if (ANTHROPIC_API_KEY) console.log('   ✓ Anthropic API key loaded from environment');
+  console.log(`\n✅ FinStation API Server running on http://localhost:${PORT}`);
+  console.log('\n   API Stack:');
+  console.log('   [1] Yahoo Finance   → Real-time price, charts, search, P/B, Beta, EV/EBITDA');
+  console.log('   [2] Screener.in     → TTM financials (P/E, ROE, ROCE, EPS, Revenue, OPM, D/E, Book Value)');
+  console.log('   [3] IndianAPI       → Fundamentals + analyst ratings (500 req/month)');
+  console.log('   [4] Alpha Vantage   → P/E, EPS, ROE, Revenue, Margins, D/E, Current Ratio (25 req/day)');
+  console.log('   [5] FMP             → Detailed statements & ratios fallback');
+  console.log('   [6] Finnhub         → Company & market news');
+  console.log('   [7] Anthropic       → AI research reports');
+  console.log('   [8] NSE/Gift Nifty  → Live Gift Nifty futures\n');
+  if (FMP_API_KEY) console.log('   ✓ FMP API key loaded');
+  if (FINNHUB_API_KEY) console.log('   ✓ Finnhub API key loaded');
+  if (ANTHROPIC_API_KEY) console.log('   ✓ Anthropic API key loaded');
+  if (INDIAN_API_KEY) console.log('   ✓ IndianAPI key loaded');
+  if (AV_API_KEY) console.log('   ✓ Alpha Vantage key loaded');
 });
