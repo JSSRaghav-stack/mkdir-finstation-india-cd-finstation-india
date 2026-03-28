@@ -107,6 +107,7 @@ export function calculateLBO(inputs) {
     taxRate = 25,              // Corporate tax rate %
     capexPct = 4,              // Capex as % of revenue
     wcChangePct = 2,           // Working capital change as % of revenue
+    depreciationPct = 3,       // D&A as % of revenue (for EBIT calculation)
     mandatoryAmortPct = 10,   // Mandatory amortization as % of initial debt
     exitType = 'Strategic',    // Exit type: Strategic, IPO, Secondary
     carryPct = 20,             // PE carry %
@@ -118,7 +119,7 @@ export function calculateLBO(inputs) {
   const entryDebt = entryEbitda * debtEbitda;
   const entryEquity = entryEV - entryDebt;
 
-  // Equity split: Senior Debt (60%), Sub/Mezz (40%)
+  // Equity split: Senior Debt (70%), Sub/Mezz (30%)
   const seniorDebt = entryDebt * 0.7;
   const subDebt = entryDebt * 0.3;
   const equityPct = Math.round((entryEquity / entryEV) * 100);
@@ -129,21 +130,24 @@ export function calculateLBO(inputs) {
   let cumulativeDebtRepaid = 0;
   let cumulativeInterest = 0;
   let cumulativeFcf = 0;
+  let maxDebtEbitda = 0;
+  let minDscr = Infinity;
 
   for (let yr = 1; yr <= holdingPeriod; yr++) {
     const revenue = entryRevenue * Math.pow(1 + revenueCagr / 100, yr);
     // EBITDA margin interpolates between entry and exit
     const marginProgress = yr / holdingPeriod;
-    const ebitdaMargin = entryEbitdaMargin + (exitEbitdaMargin - entryEbitdaMargin) * marginProgress;
-    const ebitda = revenue * (ebitdaMargin / 100);
+    const ebitdaMarginYr = entryEbitdaMargin + (exitEbitdaMargin - entryEbitdaMargin) * marginProgress;
+    const ebitda = revenue * (ebitdaMarginYr / 100);
+    const da = revenue * (depreciationPct / 100);           // D&A for EBIT
     const mgmtFeeAmt = ebitda * (mgmtFee / 100);
+    const ebit = ebitda - da - mgmtFeeAmt;                  // Correct EBIT
     const interest = debtBalance * (interestRate / 100);
-    const ebt = ebitda - mgmtFeeAmt - interest;
+    const ebt = ebit - interest;                             // EBT uses EBIT not EBITDA
     const tax = Math.max(0, ebt * (taxRate / 100));
-    const netIncome = ebt - tax;
     const capex = revenue * (capexPct / 100);
     const wcChange = revenue * (wcChangePct / 100);
-    // FCF = EBITDA - Interest - Tax - Capex - ΔWC - Mgmt Fee
+    // FCF = EBITDA - Interest - Tax - Capex - ΔWC - Mgmt Fee (D&A added back via EBITDA start)
     const fcf = ebitda - interest - tax - capex - wcChange - mgmtFeeAmt;
 
     // Mandatory amortization first
@@ -163,15 +167,22 @@ export function calculateLBO(inputs) {
     cumulativeInterest += interest;
     cumulativeFcf += Math.max(0, fcf);
 
+    // Risk metrics
+    if (ebitda > 0) maxDebtEbitda = Math.max(maxDebtEbitda, debtBalance / ebitda);
+
     // DSCR = EBITDA / (Interest + Mandatory Amort)
-    const dscr = interest + mandatoryAmort > 0
-      ? Math.round((ebitda / (interest + mandatoryAmort)) * 100) / 100
+    const dscrDenominator = interest + mandatoryAmort;
+    const dscr = dscrDenominator > 0
+      ? Math.round((ebitda / dscrDenominator) * 100) / 100
       : null;
+    if (dscr != null) minDscr = Math.min(minDscr, dscr);
 
     schedule.push({
       year: yr,
       revenue: Math.round(revenue),
       ebitda: Math.round(ebitda),
+      da: Math.round(da),
+      ebit: Math.round(ebit),
       mgmtFee: Math.round(mgmtFeeAmt),
       interest: Math.round(interest),
       tax: Math.round(tax),
@@ -225,6 +236,34 @@ export function calculateLBO(inputs) {
     };
   });
 
+  // Revenue CAGR sensitivity (±5pp, ±10pp around base)
+  const cagrSensitivity = [-10, -5, 0, 5, 10].map((delta) => {
+    const adjCagr = revenueCagr + delta;
+    const adjExitRevenue = entryRevenue * Math.pow(1 + adjCagr / 100, holdingPeriod);
+    const adjExitEbitda = adjExitRevenue * (exitEbitdaMargin / 100);
+    const adjExitEV = adjExitEbitda * exitMultipleAdj;
+    const adjExitEquity = Math.max(0, adjExitEV - exitDebt);
+    const adjCfs = [-entryEquity, ...Array(holdingPeriod - 1).fill(0), adjExitEquity];
+    const adjIrr = calculateIRR(adjCfs);
+    return {
+      cagr: adjCagr,
+      delta,
+      exitEbitda: Math.round(adjExitEbitda),
+      exitEquity: Math.round(adjExitEquity),
+      irr: Math.round(adjIrr * 10000) / 100,
+      mom: entryEquity > 0 ? Math.round((adjExitEquity / entryEquity) * 100) / 100 : 0,
+    };
+  });
+
+  // Risk indicators
+  const entryDebtEbitda = entryEbitda > 0 ? entryDebt / entryEbitda : 0;
+  const riskFlags = [];
+  if (entryDebtEbitda > 4) riskFlags.push({ type: 'danger', label: 'High leverage risk', detail: `Entry Debt/EBITDA ${entryDebtEbitda.toFixed(1)}x > 4.0x` });
+  else if (entryDebtEbitda > 3) riskFlags.push({ type: 'warning', label: 'Moderate leverage', detail: `Entry Debt/EBITDA ${entryDebtEbitda.toFixed(1)}x` });
+  if (minDscr !== Infinity && minDscr < 1.5) riskFlags.push({ type: 'danger', label: 'Debt coverage weak', detail: `Min DSCR ${minDscr.toFixed(2)}x < 1.5x` });
+  else if (minDscr !== Infinity && minDscr < 2) riskFlags.push({ type: 'warning', label: 'Tight debt coverage', detail: `Min DSCR ${minDscr.toFixed(2)}x < 2.0x` });
+  if (irr * 100 >= 25) riskFlags.push({ type: 'success', label: 'Strong IRR', detail: `${(irr * 100).toFixed(1)}% meets PE threshold` });
+
   return {
     entryEV: Math.round(entryEV),
     entryDebt: Math.round(entryDebt),
@@ -232,6 +271,8 @@ export function calculateLBO(inputs) {
     seniorDebt: Math.round(seniorDebt),
     subDebt: Math.round(subDebt),
     equityPct,
+    exitEbitda: Math.round(exitEbitda),
+    exitMultipleAdj: Math.round(exitMultipleAdj * 10) / 10,
     exitEV: Math.round(exitEV),
     exitDebt: Math.round(exitDebt),
     exitEquity: Math.round(exitEquity),
@@ -242,8 +283,12 @@ export function calculateLBO(inputs) {
     cumulativeDebtRepaid: Math.round(cumulativeDebtRepaid),
     cumulativeInterest: Math.round(cumulativeInterest),
     cumulativeFcf: Math.round(cumulativeFcf),
+    entryDebtEbitda: Math.round(entryDebtEbitda * 100) / 100,
+    minDscr: minDscr === Infinity ? null : Math.round(minDscr * 100) / 100,
+    riskFlags,
     schedule,
     exitSensitivity,
+    cagrSensitivity,
   };
 }
 

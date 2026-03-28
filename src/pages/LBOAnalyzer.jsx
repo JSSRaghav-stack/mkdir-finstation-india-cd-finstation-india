@@ -4,8 +4,14 @@ import {
 } from 'recharts';
 import { calculateLBO } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
-import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
+import { STOCK_LIST } from '../data/mockData.js';
 import { fetchStockDetail } from '../utils/api.js';
+
+// Format large numbers as ₹X,XX,XXX Cr with Indian number system
+function fmtCr(v) {
+  if (v == null || isNaN(v)) return '—';
+  return '₹' + Math.round(v).toLocaleString('en-IN') + ' Cr';
+}
 
 function Tooltip2({ label, children }) {
   return (
@@ -84,6 +90,7 @@ const DEFAULT_INPUTS = {
   taxRate: 25,
   capexPct: 4,
   wcChangePct: 2,
+  depreciationPct: 3,
   mandatoryAmortPct: 10,
   exitType: 'Strategic',
   carryPct: 20,
@@ -132,41 +139,33 @@ export default function LBOAnalyzer() {
     setFetchingStock(true);
     setDataSource('');
 
-    // Try mock first
-    const mockD = DETAILED_STOCK_DATA[ticker];
-    if (mockD) {
-      const revenue = mockD.revenue ? Math.round(mockD.revenue / 100) : DEFAULT_INPUTS.entryRevenue;
-      const margin = typeof mockD.ebitdaMargin === 'number' ? mockD.ebitdaMargin : DEFAULT_INPUTS.entryEbitdaMargin;
-      setInputs((prev) => ({
-        ...prev,
-        targetName: mockD.name,
-        entryRevenue: Math.max(1, revenue),
-        entryEbitdaMargin: margin,
-        exitEbitdaMargin: Math.min(50, margin + 2),
-      }));
-      setDataSource('mock');
-      setFetchingStock(false);
-      return;
-    }
-
-    // Try live data
     try {
       const live = await fetchStockDetail(ticker);
-      if (live && live.price > 0) {
+      if (live) {
         const stock = STOCK_LIST.find((s) => s.ticker === ticker);
+        // revenue is in Cr×100 units from api.js → divide by 100 to get Cr
         const liveRevenue = live.revenue ? Math.max(1, Math.round(live.revenue / 100)) : DEFAULT_INPUTS.entryRevenue;
-        const liveMargin  = typeof live.ebitdaMargin === 'number' ? live.ebitdaMargin : DEFAULT_INPUTS.entryEbitdaMargin;
+        const liveMargin  = typeof live.ebitdaMargin === 'number' && live.ebitdaMargin > 0
+          ? Math.min(50, live.ebitdaMargin)
+          : DEFAULT_INPUTS.entryEbitdaMargin;
+        const liveDebtEbitda = live.debtEquity != null && live.debtEquity > 0
+          ? Math.min(6, live.debtEquity)
+          : inputs.debtEbitda;
+
         setInputs((prev) => ({
           ...prev,
           targetName:         live.name || stock?.name || ticker.replace('.NS', ''),
           entryRevenue:       liveRevenue,
           entryEbitdaMargin:  liveMargin,
           exitEbitdaMargin:   Math.min(50, liveMargin + 2),
+          debtEbitda:         liveDebtEbitda,
         }));
         setDataSource('live');
+      } else {
+        setDataSource('default');
       }
     } catch {
-      // leave defaults
+      setDataSource('default');
     }
     setFetchingStock(false);
   };
@@ -211,10 +210,11 @@ export default function LBOAnalyzer() {
               <option key={s.ticker} value={s.ticker}>{s.name}</option>
             ))}
           </select>
-          {dataSource && (
-            <div className="mt-1 text-xs" style={{ color: dataSource === 'live' ? '#4ade80' : '#60a5fa' }}>
-              {dataSource === 'live' ? '● Live data loaded' : '● Mock data loaded'}
-            </div>
+          {dataSource === 'live' && (
+            <div className="mt-1 text-xs" style={{ color: '#4ade80' }}>● Live data loaded</div>
+          )}
+          {dataSource === 'default' && (
+            <div className="mt-1 text-xs" style={{ color: '#94a3b8' }}>Using default assumptions</div>
           )}
           {fetchingStock && (
             <div className="mt-1 text-xs" style={{ color: '#64748b' }}>Fetching data...</div>
@@ -368,6 +368,15 @@ export default function LBOAnalyzer() {
         />
 
         <Slider
+          label="D&A % of Revenue"
+          value={inputs.depreciationPct ?? 3}
+          min={1} max={10} step={0.5}
+          onChange={set('depreciationPct')}
+          suffix="%"
+          tooltip="Depreciation & Amortization as % of revenue — used for EBIT calculation and tax"
+        />
+
+        <Slider
           label="Mandatory Amort % of Debt"
           value={inputs.mandatoryAmortPct}
           min={5} max={25} step={1}
@@ -468,6 +477,27 @@ export default function LBOAnalyzer() {
           </div>
         ) : (
           <>
+            {/* Risk Indicators */}
+            {result.riskFlags && result.riskFlags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {result.riskFlags.map((flag, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                    style={{
+                      background: flag.type === 'danger' ? 'rgba(239,68,68,0.12)' : flag.type === 'warning' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.12)',
+                      border: `1px solid ${flag.type === 'danger' ? 'rgba(239,68,68,0.35)' : flag.type === 'warning' ? 'rgba(245,158,11,0.35)' : 'rgba(34,197,94,0.35)'}`,
+                      color: flag.type === 'danger' ? '#f87171' : flag.type === 'warning' ? '#fbbf24' : '#4ade80',
+                    }}
+                  >
+                    <span>{flag.type === 'danger' ? '⚠' : flag.type === 'warning' ? '⚡' : '✓'}</span>
+                    <span>{flag.label}</span>
+                    <span style={{ opacity: 0.7 }}>· {flag.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Returns summary */}
             <div className="grid grid-cols-3 gap-4 mb-5">
               <ReturnsBadge irr={result.irr} />
@@ -497,16 +527,24 @@ export default function LBOAnalyzer() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs">
                     <span style={{ color: '#64748b' }}>Entry Equity</span>
-                    <span style={{ color: '#e2e8f0' }}>{formatCroreCompact(result.entryEquity)}</span>
+                    <span style={{ color: '#e2e8f0' }}>{fmtCr(result.entryEquity)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span style={{ color: '#64748b' }}>Exit EBITDA</span>
+                    <span style={{ color: '#e2e8f0' }}>{fmtCr(result.exitEbitda)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span style={{ color: '#64748b' }}>Exit EV ({result.exitMultipleAdj}x)</span>
+                    <span style={{ color: '#e2e8f0' }}>{fmtCr(result.exitEV)}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span style={{ color: '#64748b' }}>Exit Equity</span>
-                    <span style={{ color: '#e2e8f0' }}>{formatCroreCompact(result.exitEquity)}</span>
+                    <span style={{ color: '#e2e8f0' }}>{fmtCr(result.exitEquity)}</span>
                   </div>
-                  <div className="flex justify-between text-xs">
+                  <div className="flex justify-between text-xs border-t pt-1" style={{ borderColor: '#1e1e2e' }}>
                     <span style={{ color: '#64748b' }}>Value Created</span>
                     <span style={{ color: result.exitEquity >= result.entryEquity ? '#22c55e' : '#ef4444' }}>
-                      {formatCroreCompact(result.exitEquity - result.entryEquity)}
+                      {fmtCr(result.exitEquity - result.entryEquity)}
                     </span>
                   </div>
                 </div>
@@ -516,14 +554,14 @@ export default function LBOAnalyzer() {
             {/* Key metrics grid */}
             <div className="grid grid-cols-4 gap-3 mb-5">
               {[
-                { label: 'Entry EV', value: formatCroreCompact(result.entryEV), tooltip: 'Enterprise Value at acquisition' },
-                { label: 'Exit EV', value: formatCroreCompact(result.exitEV), tooltip: `Enterprise Value at exit (${inputs.exitType})` },
-                { label: 'Entry Debt', value: formatCroreCompact(result.entryDebt), tooltip: 'Total acquisition debt (Senior + Sub)' },
-                { label: 'Exit Debt', value: formatCroreCompact(result.exitDebt), tooltip: 'Remaining debt at exit after amortization + FCF sweep' },
-                { label: 'Equity In', value: `${result.equityPct}% / ${formatCroreCompact(result.entryEquity)}`, tooltip: 'Equity contribution as % of Entry EV' },
-                { label: 'LP Proceeds', value: formatCroreCompact(result.lpProceeds), tooltip: 'LP proceeds after PE carried interest' },
-                { label: 'PE Carry', value: formatCroreCompact(result.carry), tooltip: `${inputs.carryPct}% carry on profits above ${inputs.hurdleRate}% hurdle` },
-                { label: 'Debt Repaid', value: formatCroreCompact(result.cumulativeDebtRepaid), tooltip: 'Total debt repaid (mandatory + FCF sweep) over holding period' },
+                { label: 'Entry EV', value: fmtCr(result.entryEV), tooltip: 'Enterprise Value at acquisition' },
+                { label: 'Exit EV', value: fmtCr(result.exitEV), tooltip: `Enterprise Value at exit (${inputs.exitType})` },
+                { label: 'Entry Debt', value: fmtCr(result.entryDebt), tooltip: 'Total acquisition debt (Senior + Sub)' },
+                { label: 'Exit Debt', value: fmtCr(result.exitDebt), tooltip: 'Remaining debt at exit after amortization + FCF sweep' },
+                { label: 'Equity In', value: `${result.equityPct}% / ${fmtCr(result.entryEquity)}`, tooltip: 'Equity contribution as % of Entry EV' },
+                { label: 'LP Proceeds', value: fmtCr(result.lpProceeds), tooltip: 'LP proceeds after PE carried interest' },
+                { label: 'PE Carry', value: fmtCr(result.carry), tooltip: `${inputs.carryPct}% carry on profits above ${inputs.hurdleRate}% hurdle` },
+                { label: 'Debt Repaid', value: fmtCr(result.cumulativeDebtRepaid), tooltip: 'Total debt repaid (mandatory + FCF sweep) over holding period' },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl p-3" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
                   <div className="text-xs mb-1" style={{ color: '#64748b' }}>
@@ -545,7 +583,7 @@ export default function LBOAnalyzer() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ background: '#0d0d15', borderBottom: '1px solid #1e1e2e' }}>
-                      {['Year', 'Revenue', 'EBITDA', 'Interest', 'Tax', 'FCF', 'Mand. Amort', 'FCF Sweep', 'Debt Balance', 'DSCR'].map((h) => (
+                      {['Year', 'Revenue', 'EBITDA', 'D&A', 'EBIT', 'Interest', 'Tax', 'FCF', 'Mand. Amort', 'FCF Sweep', 'Debt Balance', 'DSCR'].map((h) => (
                         <th key={h} className="px-3 py-2 text-right font-medium first:text-left" style={{ color: '#64748b' }}>
                           {h}
                         </th>
@@ -563,6 +601,8 @@ export default function LBOAnalyzer() {
                         <td className="px-3 py-2 text-left font-semibold" style={{ color: '#60a5fa' }}>Year {row.year}</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.revenue.toLocaleString('en-IN')}</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#e2e8f0' }}>{row.ebitda.toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#64748b' }}>({row.da?.toLocaleString('en-IN') ?? '—'})</td>
+                        <td className="px-3 py-2 text-right" style={{ color: '#93c5fd' }}>{row.ebit?.toLocaleString('en-IN') ?? '—'}</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#ef4444' }}>({row.interest.toLocaleString('en-IN')})</td>
                         <td className="px-3 py-2 text-right" style={{ color: '#f59e0b' }}>({row.tax.toLocaleString('en-IN')})</td>
                         <td className="px-3 py-2 text-right font-medium" style={{ color: row.fcf >= 0 ? '#22c55e' : '#ef4444' }}>{row.fcf.toLocaleString('en-IN')}</td>
@@ -606,7 +646,7 @@ export default function LBOAnalyzer() {
                             <td className="px-4 py-2 font-semibold" style={{ color: isBase ? '#a78bfa' : '#94a3b8' }}>
                               {row.multiple.toFixed(1)}x {isBase ? '(Base)' : ''}
                             </td>
-                            <td className="px-4 py-2 text-right" style={{ color: '#e2e8f0' }}>{formatCroreCompact(row.exitEquity)}</td>
+                            <td className="px-4 py-2 text-right" style={{ color: '#e2e8f0' }}>{fmtCr(row.exitEquity)}</td>
                             <td className="px-4 py-2 text-right font-bold" style={{ color: irrColor }}>{row.irr.toFixed(1)}%</td>
                             <td className="px-4 py-2 text-right font-semibold" style={{ color: row.mom >= 2 ? '#60a5fa' : '#94a3b8' }}>{row.mom.toFixed(2)}x</td>
                           </tr>
@@ -617,6 +657,68 @@ export default function LBOAnalyzer() {
                 </div>
               </div>
             )}
+
+            {/* Revenue CAGR Sensitivity */}
+            {result.cagrSensitivity && (
+              <div className="rounded-xl overflow-hidden mb-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
+                <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
+                  <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>
+                    📈 Revenue CAGR Sensitivity
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr style={{ background: '#0d0d15', borderBottom: '1px solid #1e1e2e' }}>
+                        <th className="px-4 py-2 text-left font-medium" style={{ color: '#64748b' }}>Revenue CAGR</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>Exit EBITDA</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>Exit Equity</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>IRR</th>
+                        <th className="px-4 py-2 text-right font-medium" style={{ color: '#64748b' }}>MoM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.cagrSensitivity.map((row, i) => {
+                        const isBase = row.delta === 0;
+                        const irrColor = row.irr >= 25 ? '#22c55e' : row.irr >= 15 ? '#f59e0b' : '#ef4444';
+                        return (
+                          <tr key={i} style={{ background: isBase ? 'rgba(139,92,246,0.08)' : 'transparent', borderBottom: '1px solid #1a1a2a' }}>
+                            <td className="px-4 py-2 font-semibold" style={{ color: isBase ? '#a78bfa' : row.delta > 0 ? '#4ade80' : '#f87171' }}>
+                              {row.cagr.toFixed(1)}%{' '}
+                              {isBase ? '(Base)' : row.delta > 0 ? `+${row.delta}pp` : `${row.delta}pp`}
+                            </td>
+                            <td className="px-4 py-2 text-right" style={{ color: '#e2e8f0' }}>{fmtCr(row.exitEbitda)}</td>
+                            <td className="px-4 py-2 text-right" style={{ color: '#e2e8f0' }}>{fmtCr(row.exitEquity)}</td>
+                            <td className="px-4 py-2 text-right font-bold" style={{ color: irrColor }}>{row.irr.toFixed(1)}%</td>
+                            <td className="px-4 py-2 text-right font-semibold" style={{ color: row.mom >= 2 ? '#60a5fa' : '#94a3b8' }}>{row.mom.toFixed(2)}x</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* AI Explanation */}
+            <div className="rounded-xl p-4 mb-5" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <div className="text-xs font-semibold mb-2" style={{ color: '#a78bfa' }}>
+                🤖 Deal Analyst Summary
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: '#94a3b8' }}>
+                {(() => {
+                  const irr = result.irr;
+                  const mom = result.mom;
+                  const entryLev = result.entryDebtEbitda;
+                  const minDscr = result.minDscr;
+                  const quality = irr >= 25 ? 'strong' : irr >= 15 ? 'moderate' : 'below-threshold';
+                  const leverageDesc = entryLev > 4 ? 'highly leveraged' : entryLev > 3 ? 'moderately leveraged' : 'conservatively leveraged';
+                  const dscrDesc = minDscr != null && minDscr < 1.5 ? 'with tight debt-service coverage that warrants monitoring' : minDscr != null && minDscr < 2 ? 'with acceptable but tight debt coverage' : 'with healthy debt-service coverage throughout the hold';
+
+                  return `This LBO shows a ${quality} return profile — IRR of ${irr.toFixed(1)}% and ${mom.toFixed(2)}x MoM over a ${inputs.holdingPeriod}-year hold. The deal is ${leverageDesc} at entry (${entryLev.toFixed(1)}x Debt/EBITDA) ${dscrDesc}. Entry EV is ${fmtCr(result.entryEV)} at ${inputs.entryMultiple}x EBITDA; exit at ${result.exitMultipleAdj}x gives ${fmtCr(result.exitEV)}. After debt repayment of ${fmtCr(result.cumulativeDebtRepaid)}, LP proceeds are ${fmtCr(result.lpProceeds)} with PE carry of ${fmtCr(result.carry)}.${irr < 15 ? ' Returns are below the typical 15% PE hurdle — consider improving operational margins or reducing entry price.' : irr >= 25 ? ' Returns comfortably exceed the 25% PE benchmark — strong candidate for investment.' : ' Returns are acceptable but not exceptional — consider stress-testing with downside CAGR scenarios.'}`;
+                })()}
+              </p>
+            </div>
 
             {/* Waterfall chart */}
             <div className="rounded-xl p-5" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
