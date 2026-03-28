@@ -31,11 +31,11 @@ const AV_API_BASE = 'https://www.alphavantage.co';
 
 // ─── IndianAPI helpers ─────────────────────────────────────────────────────
 const indianApiCache = new Map();
-const INDIAN_API_TTL = 90 * 1000; // 90s cache (500 req/month limit)
+const INDIAN_API_TTL = 5 * 60 * 1000; // 5-min cache (500 req/month limit)
 
 // ─── Alpha Vantage helpers ─────────────────────────────────────────────────
 const avCache = new Map();
-const AV_TTL = 5 * 60 * 1000; // 5-min cache (25 req/day free limit)
+const AV_TTL = 15 * 60 * 1000; // 15-min cache (25 req/day free limit)
 
 // ─── Field validation bounds ───────────────────────────────────────────────
 // Values outside these ranges are almost certainly data errors → rejected
@@ -380,7 +380,7 @@ async function fetchGiftNiftyData() {
 
 // Simple in-memory cache for Screener data (5-min TTL)
 const screenerCache = new Map();
-const SCREENER_TTL = 5 * 60 * 1000;
+const SCREENER_TTL = 10 * 60 * 1000; // 10-min cache to reduce Screener load
 
 function stripTags(str) {
   return str.replace(/<[^>]+>/g, '').trim();

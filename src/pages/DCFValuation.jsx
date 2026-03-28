@@ -6,6 +6,7 @@ import { STOCK_LIST } from '../data/mockData.js';
 import { calculateDCF, calculateSensitivity } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
 import { fetchStockDetail } from '../utils/api.js';
+import StockSearchBox from '../components/StockSearchBox.jsx';
 
 function Tooltip2({ label, children }) {
   return (
@@ -262,19 +263,20 @@ export default function DCFValuation() {
 
   const set = (key) => (val) => setInputs((prev) => ({ ...prev, [key]: val }));
 
-  const result = useMemo(() => calculateDCF(inputs), [inputs]);
-  const sensitivity = useMemo(
-    () => calculateSensitivity(inputs, currentPrice),
-    [inputs, currentPrice]
-  );
+  const result = useMemo(() => {
+    try { return calculateDCF(inputs); } catch { return null; }
+  }, [inputs]);
+  const sensitivity = useMemo(() => {
+    try { return calculateSensitivity(inputs, currentPrice); } catch { return null; }
+  }, [inputs, currentPrice]);
 
-  const chartData = result.rows.map((r) => ({
+  const chartData = result ? result.rows.map((r) => ({
     year: `FY${26 + r.year - 1}`,
     fcf: r.fcf,
     pvFcf: r.pvFcf,
-  }));
+  })) : [];
 
-  const upside = result.intrinsicValuePerShare > 0 && currentPrice > 0
+  const upside = result && result.intrinsicValuePerShare > 0 && currentPrice > 0
     ? ((result.intrinsicValuePerShare - currentPrice) / currentPrice) * 100
     : null;
 
@@ -290,20 +292,15 @@ export default function DCFValuation() {
         {/* Stock selector */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-1" style={{ color: '#64748b' }}>
-            Reference Stock (auto-fill)
+            Search Company (auto-fill)
           </label>
-          <select
+          <StockSearchBox
             value={selectedStock}
-            onChange={(e) => handleStockChange(e.target.value)}
+            onChange={handleStockChange}
+            placeholder="Search NSE stock…"
+            accentColor="#10b981"
             disabled={fetchingStock}
-            className="w-full px-3 py-2 rounded-lg text-xs outline-none"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0', opacity: fetchingStock ? 0.6 : 1 }}
-          >
-            <option value="">— Custom / Unlisted —</option>
-            {STOCK_LIST.map((s) => (
-              <option key={s.ticker} value={s.ticker}>{s.name}</option>
-            ))}
-          </select>
+          />
           {dataSource === 'live' && (
             <div className="mt-1 text-xs" style={{ color: '#4ade80' }}>● Live data loaded</div>
           )}
@@ -498,6 +495,14 @@ export default function DCFValuation() {
             </div>
           </div>
         )}
+        {!result && !fetchingStock && (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <div style={{ fontSize: 36 }}>📊</div>
+            <div className="text-sm font-semibold" style={{ color: '#475569' }}>Adjust inputs to compute DCF</div>
+            <div className="text-xs" style={{ color: '#334155' }}>Check WACC &gt; Terminal Growth Rate</div>
+          </div>
+        )}
+        {result && <>
         {/* Summary cards */}
         <div className="grid grid-cols-3 gap-4 mb-5">
           <div className="rounded-xl p-4" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
@@ -640,7 +645,7 @@ export default function DCFValuation() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sensitivity.map((row, ri) => (
+                  {(sensitivity || []).map((row, ri) => (
                     <tr key={ri}>
                       <td className="py-1.5 px-2 text-left font-medium" style={{ color: '#64748b' }}>
                         {(inputs.wacc + [-1, 0, 1][ri]).toFixed(1)}%
@@ -700,6 +705,7 @@ export default function DCFValuation() {
         </div>
 
         <div className="h-6" />
+        </>}
       </div>
     </div>
   );

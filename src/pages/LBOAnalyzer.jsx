@@ -6,6 +6,7 @@ import { calculateLBO } from '../utils/calculations.js';
 import { formatCroreCompact } from '../utils/formatters.js';
 import { STOCK_LIST } from '../data/mockData.js';
 import { fetchStockDetail } from '../utils/api.js';
+import StockSearchBox from '../components/StockSearchBox.jsx';
 
 // Format large numbers as ₹X,XX,XXX Cr with Indian number system
 function fmtCr(v) {
@@ -196,20 +197,15 @@ export default function LBOAnalyzer() {
         {/* Stock selector */}
         <div className="mb-4">
           <label className="block text-xs font-medium mb-1" style={{ color: '#64748b' }}>
-            Reference Stock (auto-fill)
+            Search Company (auto-fill)
           </label>
-          <select
+          <StockSearchBox
             value={selectedStock}
-            onChange={(e) => handleStockChange(e.target.value)}
+            onChange={handleStockChange}
+            placeholder="Search NSE stock…"
+            accentColor="#a855f7"
             disabled={fetchingStock}
-            className="w-full px-3 py-2 rounded-lg text-xs outline-none"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0', opacity: fetchingStock ? 0.6 : 1 }}
-          >
-            <option value="">— Custom / Unlisted —</option>
-            {STOCK_LIST.map((s) => (
-              <option key={s.ticker} value={s.ticker}>{s.name}</option>
-            ))}
-          </select>
+          />
           {dataSource === 'live' && (
             <div className="mt-1 text-xs" style={{ color: '#4ade80' }}>● Live data loaded</div>
           )}
