@@ -432,6 +432,18 @@ function parseScreenerData(html) {
   // Prefer P&L EPS (TTM); fall back to key-ratio EPS
   if (result.eps == null && result.epsKR != null) result.eps = result.epsKR;
 
+  // If key-ratio P/E wasn't parsed, calculate from MarketCap / NetProfit(TTM)
+  // This matches exactly how Screener computes "Stock P/E" (MCap-based, not price/EPS)
+  if (result.pe == null && result.marketCapCr != null && result.netProfitCr != null && result.netProfitCr > 0) {
+    result.pe = Math.round((result.marketCapCr / result.netProfitCr) * 10) / 10;
+    console.log(`[Screener] Calculated P/E=${result.pe} from MCap/NetProfit (key-ratio parse failed)`);
+  }
+
+  // D/E fallback: calculate from balance sheet if not in P&L
+  if (result.debtEquity == null && result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
+    result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
+  }
+
   return result;
 }
 
@@ -809,31 +821,60 @@ async function fetchScreenerStock(cleanSymbol) {
   if (cached && (Date.now() - cached.time) < SCREENER_TTL) {
     return { data: cached.payload?.data || null, companyName: cached.payload?.companyName || null, fromCache: true };
   }
-  // Step 1: autosuggest
-  const searchRes = await httpsGet(
-    `https://www.screener.in/api/company/?q=${encodeURIComponent(cleanSymbol)}&autosuggest=1`,
-    { ...SCREENER_HEADERS, 'Accept': 'application/json' },
-    8000,
-  );
-  let companies;
-  try { companies = JSON.parse(searchRes.data); } catch { companies = []; }
-  if (!companies || companies.length === 0) throw new Error('Not found on Screener.in');
 
-  const company = companies.find(c =>
-    c.url.replace(/\//g, '').toUpperCase() === `COMPANY${cleanSymbol}`
-  ) || companies[0];
-
-  // Step 2: fetch company page (consolidated preferred)
-  let html = '';
-  for (const suffix of ['consolidated/', '']) {
+  // Step 1: autosuggest — try NSE symbol, then first 6 chars as fallback
+  let companies = [];
+  for (const query of [cleanSymbol, cleanSymbol.slice(0, 6)]) {
     try {
-      const pageRes = await httpsGet(`https://www.screener.in${company.url}${suffix}`, SCREENER_HEADERS, 20000);
-      if (pageRes.status === 200 && pageRes.data.length > 2000) { html = pageRes.data; break; }
+      const searchRes = await httpsGet(
+        `https://www.screener.in/api/company/?q=${encodeURIComponent(query)}&autosuggest=1`,
+        { ...SCREENER_HEADERS, 'Accept': 'application/json' },
+        8000,
+      );
+      const parsed = JSON.parse(searchRes.data);
+      if (Array.isArray(parsed) && parsed.length > 0) { companies = parsed; break; }
     } catch { continue; }
   }
-  if (!html) throw new Error('Could not load Screener.in page');
+  if (companies.length === 0) throw new Error('Not found on Screener.in');
+
+  // Best match: URL slug equals NSE symbol; fallback to first result
+  const company = companies.find(c =>
+    c.url.replace(/\//g, '').toUpperCase() === `COMPANY${cleanSymbol}`
+  ) || companies.find(c =>
+    (c.name || '').toUpperCase().includes(cleanSymbol.slice(0, 5))
+  ) || companies[0];
+
+  // Step 2: fetch company page — try consolidated first, then standalone, with 1 retry each
+  let html = '';
+  for (const suffix of ['consolidated/', '']) {
+    for (let attempt = 0; attempt < 2 && !html; attempt++) {
+      try {
+        const pageRes = await httpsGet(
+          `https://www.screener.in${company.url}${suffix}`,
+          SCREENER_HEADERS,
+          attempt === 0 ? 18000 : 22000, // longer timeout on retry
+        );
+        if (pageRes.status === 200 && pageRes.data.length > 2000) {
+          html = pageRes.data;
+        } else if (pageRes.status === 403 || pageRes.status === 404) {
+          break; // no point retrying 403/404
+        }
+      } catch (e) {
+        console.warn(`[Screener] ${cleanSymbol} attempt ${attempt+1} (${suffix||'standalone'}): ${e.message}`);
+        if (attempt === 0) await new Promise(r => setTimeout(r, 2000)); // 2s before retry
+      }
+    }
+    if (html) break;
+  }
+  if (!html) throw new Error('Could not load Screener.in page after retries');
 
   const data = parseScreenerData(html);
+
+  // Sanity log
+  const fields = ['pe','roe','roce','revenueCr','netProfitCr','eps','bookValue','dividendYield'];
+  const found = fields.filter(f => data[f] != null);
+  console.log(`[Screener] ${cleanSymbol}: ${found.length}/${fields.length} fields → [${found.join(',')}]`);
+
   const payload = { success: true, data, companyName: company.name };
   screenerCache.set(cleanSymbol, { payload, time: Date.now() });
   return { data, companyName: company.name, fromCache: false };
@@ -1332,7 +1373,8 @@ const server = createServer(async (req, res) => {
             const fd = r.financialData || {}, ks = r.defaultKeyStatistics || {};
             return {
               roe:          fd.returnOnEquity?.raw != null ? Math.round(fd.returnOnEquity.raw * 1000) / 10 : null,
-              debtEquity:   fd.debtToEquity?.raw   != null ? Math.round(fd.debtToEquity.raw * 100)  / 100 : null,
+              // Yahoo debtToEquity.raw is in percentage (50.37 = 50.37% = 0.5037 ratio) → divide by 100
+              debtEquity:   fd.debtToEquity?.raw   != null ? Math.round(fd.debtToEquity.raw / 100 * 100) / 100 : null,
               currentRatio: fd.currentRatio?.raw   != null ? Math.round(fd.currentRatio.raw * 100)  / 100 : null,
               evEbitda:     ks.enterpriseToEbitda?.raw != null ? Math.round(ks.enterpriseToEbitda.raw * 10) / 10 : null,
               revenue:      Math.round((fd.totalRevenue?.raw || 0) / 1e5),   // → Cr*100 units
@@ -1418,11 +1460,18 @@ const server = createServer(async (req, res) => {
       const marketCap = Q?.marketCap ? Math.round(Q.marketCap / 1e7) : null;
       const mkCapCr   = marketCap || S?.marketCapCr || AV?.marketCapCr || IA?.marketCapCr || null;
 
+      // P/E: NEVER use Yahoo — their trailing P/E uses US-accounting EPS (wrong for India)
+      // If key-ratio P/E is missing from Screener, compute from MarketCap / NetProfit (TTM)
+      const screenerPE = S?.pe ?? (
+        S?.marketCapCr != null && S?.netProfitCr != null && S.netProfitCr > 0
+          ? Math.round(S.marketCapCr / S.netProfitCr * 10) / 10
+          : null
+      );
       const pe  = fv('pe',  [
-        { value: S?.pe,              src: 'Screener'     },
-        { value: IA?.pe,             src: 'IndianAPI'    },
-        { value: AV?.pe,             src: 'AlphaVantage' },
-        { value: Q?.trailingPE,      src: 'Yahoo'        },
+        { value: screenerPE,  src: 'Screener'     },
+        { value: IA?.pe,      src: 'IndianAPI'    },
+        { value: AV?.pe,      src: 'AlphaVantage' },
+        // Yahoo intentionally excluded — produces wrong P/E for Indian stocks
       ]);
       const eps = fv('eps', [
         { value: S?.eps,                      src: 'Screener'     },
@@ -1453,13 +1502,9 @@ const server = createServer(async (req, res) => {
       const pb           = fv('pb',           [{ value: Q?.priceToBook,   src: 'Yahoo'     }, { value: IA?.pb,          src: 'IndianAPI'    }, { value: AV?.pb, src: 'AlphaVantage' }]);
       const beta         = fv('beta',         [{ value: Q?.beta,          src: 'Yahoo'     }, { value: AV?.beta,        src: 'AlphaVantage' }]);
 
-      // Calculated: P/E from price/EPS only if no authoritative source has it
-      let peOut = pe;
-      if (peOut === null && price > 0 && eps !== null && eps > 0) {
-        const calc = Math.round((price / eps) * 10) / 10;
-        peOut = validated('pe', calc, 'calculated', logs);
-        if (peOut !== null) logs.push(`USE   pe=${peOut} [calculated from price/eps]`);
-      }
+      // P/E: use as-is from Screener/IndianAPI/AV — do NOT calculate from price/EPS
+      // Calculating price/EPS produces wrong results (Yahoo EPS ≠ Indian accounting EPS)
+      const peOut = pe;
 
       // P/B from price/bookValue only if no source has it
       let pbOut = pb;
