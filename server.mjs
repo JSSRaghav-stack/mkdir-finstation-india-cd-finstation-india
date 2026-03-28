@@ -300,7 +300,12 @@ function parseScreenerData(html) {
   // ── 1. Key Ratios ─────────────────────────────────────────────────────────
   const trIdx  = html.search(/id=["']top-ratios["']/);
   const crIdx  = html.search(/class=["'][^"']*company-ratios[^"']*["']/);
-  const ratiosSectionIdx = trIdx !== -1 ? trIdx : crIdx;
+  // Extra fallback: find the first occurrence of "Stock P/E" text which is always in key ratios
+  const peTextIdx = html.indexOf('Stock P/E');
+  const ratiosSectionIdx = trIdx !== -1 ? trIdx
+    : crIdx !== -1 ? crIdx
+    : peTextIdx !== -1 ? Math.max(0, peTextIdx - 500)
+    : -1;
 
   if (ratiosSectionIdx !== -1) {
     const chunk = html.slice(ratiosSectionIdx, ratiosSectionIdx + 10000);
@@ -348,40 +353,52 @@ function parseScreenerData(html) {
         || li.match(/<strong[^>]*>([-\d.,]+)<\/strong>/);
       if (!nameMatch || !numMatch) continue;
 
-      const name  = stripTags(nameMatch[1]).toLowerCase().replace(/\s+/g, ' ').trim();
-      const value = parseNum(numMatch[1]);
+      const nameRaw = stripTags(nameMatch[1]).toLowerCase().trim();
+      const name    = nameRaw.replace(/[^a-z0-9/]/g, ''); // strip non-alphanum for matching
+      const value   = parseNum(numMatch[1]);
       if (value === null) continue;
 
-      if      (name.includes('market cap'))                                     result.marketCapCr   = value;
-      else if (name.includes('stock p/e') || name === 'p/e' || name === 'pe')  result.pe            = value;
-      else if (name === 'roe' || name.includes('return on equity'))             result.roe           = value;
-      else if (name === 'roce' || name.includes('return on capital'))           result.roce          = value;
-      else if (name.includes('dividend yield') || name.includes('div. yield')) result.dividendYield = value;
-      else if (name.includes('book value'))                                     result.bookValue     = value;
-      else if (name === 'face value' || name === 'fv')                         result.faceValue     = value;
-      else if (name === 'eps' || name.includes('earning per share'))            result.epsKR         = value;
-      else if (name === 'rsi')                                                  result.rsi           = value;
+      if      (nameRaw.includes('market cap'))                                                result.marketCapCr   = value;
+      else if (nameRaw.includes('stock p/e') || name === 'pe' || name === 'stockpe')         result.pe            = value;
+      else if (name === 'roe' || nameRaw.includes('return on equity'))                        result.roe           = value;
+      else if (name === 'roce' || nameRaw.includes('return on capital'))                      result.roce          = value;
+      else if (nameRaw.includes('dividend yield') || nameRaw.includes('div. yield') ||
+               nameRaw.includes('div yield'))                                                 result.dividendYield = value;
+      else if (nameRaw.includes('book value'))                                                result.bookValue     = value;
+      else if (nameRaw.includes('current ratio'))                                             result.currentRatio  = value;
+      else if (name === 'facevalue' || name === 'fv')                                         result.faceValue     = value;
+      else if (name === 'eps' || nameRaw.includes('earning per share') ||
+               nameRaw.includes('earnings per share'))                                        result.epsKR         = value;
+      else if (name === 'rsi')                                                                result.rsi           = value;
     }
   }
 
   // ── 2. Balance Sheet (last non-empty cell = most recent year) ─────────────
-  const bsIdx = html.indexOf('id="balance-sheet"');
-  if (bsIdx !== -1) {
-    const bsChunk = html.slice(bsIdx, bsIdx + 25000);
+  // Screener balance sheet rows: Share Capital, Reserves, Borrowings, Other Liabilities...
+  const bsSearch = [html.indexOf('id="balance-sheet"'), html.indexOf("id='balance-sheet'")].find(i => i !== -1) ?? -1;
+  if (bsSearch !== -1) {
+    const bsChunk = html.slice(bsSearch, bsSearch + 30000);
     const rows = bsChunk.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) || [];
     for (const row of rows) {
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
         .map(m => stripTags(m[1]).replace(/,/g, '').trim());
       if (cells.length < 2) continue;
-      const label  = cells[0].toLowerCase().replace(/\s+/g, '');
+      const label  = cells[0].toLowerCase().replace(/[^a-z0-9]/g, ''); // strip all non-alphanum
       const recent = [...cells].reverse().find(c => c && !isNaN(parseFloat(c)) && parseFloat(c) !== 0);
       const val    = recent != null ? parseNum(recent) : null;
       if (val === null) continue;
-      if      (label.includes('borrowing'))                                     result.totalBorrowings   = val;
+      if      (label.includes('borrowing'))                                             result.totalBorrowings   = val;
       else if (label.includes('shareholder') || label.includes('networth') ||
-               label === 'equity' || label.includes('shareholders'))            result.shareholderEquity = val;
-      else if (label.includes('cashandcash') || label.includes('cash&') ||
-               label === 'cashandequivalents')                                  result.cashAndEquivalents = val;
+               label === 'equity' || label.includes('shareholders'))                    result.shareholderEquity = val;
+      // Screener uses "Reserves" row — accumulate for equity
+      else if (label === 'reserves' || label === 'reservesandsurplus')                  result.reserves          = val;
+      else if (label === 'sharecapital' || label === 'capital' || label === 'paidupcapital') result.shareCapital = val;
+      else if (label.startsWith('cash') && !label.includes('flow'))                    result.cashAndEquivalents = val;
+      else if (label.includes('currentratio'))                                         result.currentRatio      = val;
+    }
+    // If no explicit "Shareholders' Equity" row, sum Reserves + Share Capital
+    if (result.shareholderEquity == null && result.reserves != null) {
+      result.shareholderEquity = result.reserves + (result.shareCapital || 0);
     }
     if (result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
       result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
@@ -389,9 +406,9 @@ function parseScreenerData(html) {
   }
 
   // ── 3. P&L Table ──────────────────────────────────────────────────────────
-  const plIdx = html.indexOf('id="profit-loss"');
-  if (plIdx !== -1) {
-    const plChunk = html.slice(plIdx, plIdx + 30000);
+  const plSearch = [html.indexOf('id="profit-loss"'), html.indexOf("id='profit-loss'")].find(i => i !== -1) ?? -1;
+  if (plSearch !== -1) {
+    const plChunk = html.slice(plSearch, plSearch + 30000);
 
     // Detect TTM column: prefer explicit "TTM" header; otherwise use LAST column
     // (Screener shows years oldest→newest, latest/TTM is always the rightmost)
@@ -409,22 +426,37 @@ function parseScreenerData(html) {
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
         .map(m => stripTags(m[1]).replace(/,/g, '').trim());
       if (cells.length < 2) continue;
-      const label = cells[0].toLowerCase().replace(/\s+/g, '');
+      // Strip ALL non-alphanum for robust matching
+      const label = cells[0].toLowerCase().replace(/[^a-z0-9]/g, '');
       // Use detected TTM index or fall back to last column (most recent)
       const ttm = ttmColIdx >= 0
         ? (cells[Math.min(ttmColIdx, cells.length - 1)] || cells[cells.length - 1])
         : cells[cells.length - 1];
 
-      if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other') && !label.includes('growth')) {
-        result.revenueCr   = parseNum(ttm);
-      } else if ((label.includes('netprofit') || label.includes('profitaftertax') || label === 'profit') && !label.includes('growth')) {
+      // Revenue: "Sales", "Revenue", "Revenue from Operations", "Net Revenue"
+      if (!result.revenueCr &&
+          (label.startsWith('sales') || label.startsWith('revenue') || label.startsWith('netrevenue') || label.startsWith('totalrevenue')) &&
+          !label.includes('growth') && !label.includes('other')) {
+        result.revenueCr = parseNum(ttm);
+
+      // Net Profit: "Net Profit", "Profit After Tax", "Profit for the period", "PAT"
+      } else if (!result.netProfitCr &&
+          (label.includes('netprofit') || label.includes('profitaftertax') || label.includes('profitforthe') ||
+           label === 'profit' || label === 'pat' || label.startsWith('netearning')) &&
+          !label.includes('growth')) {
         result.netProfitCr = parseNum(ttm);
-      } else if (label.startsWith('opm') || label.startsWith('operatingprofit%')) {
-        result.opmPercent  = parseNum(ttm.replace('%', ''));
-      } else if (label === 'eps' || label.startsWith('eps(')) {
-        result.eps         = parseNum(ttm);
-      } else if (label.includes('debttoeq') || label === 'd/e' || label.includes('debteq')) {
-        result.debtEquity  = parseNum(ttm);
+
+      // OPM: "OPM %", "Operating Profit Margin %", "EBITDA Margin %"
+      } else if (label.startsWith('opm') || label.startsWith('operatingprofitmargin') || label.startsWith('ebitdamargin')) {
+        result.opmPercent = parseNum(ttm.replace('%', ''));
+
+      // EPS
+      } else if (label === 'eps' || label.startsWith('eps')) {
+        if (result.eps == null) result.eps = parseNum(ttm); // only set if not already set
+
+      // D/E
+      } else if (label.includes('debttoeq') || label === 'de' || label.includes('debteq') || label === 'debtoequity') {
+        result.debtEquity = parseNum(ttm);
       }
     }
   }
@@ -1397,9 +1429,10 @@ const server = createServer(async (req, res) => {
       const screenerHas = screenerCritical.filter(f => screenerResult?.[f] != null).length;
       logs.push(`Screener coverage: ${screenerHas}/${screenerCritical.length} critical fields`);
 
-      // Fetch fallbacks only if Screener is incomplete (< 2 critical fields)
+      // Fetch fallbacks if Screener is incomplete (< 3 critical fields)
+      // — covers newly listed, smaller, or parse-tricky stocks
       let iaRaw = null, avResult = null;
-      if (screenerHas < 2) {
+      if (screenerHas < 3) {
         logs.push(`FALLBACK: Screener insufficient → fetching IndianAPI + Alpha Vantage`);
         [iaRaw, avResult] = await Promise.all([
           (async () => {
@@ -1497,7 +1530,7 @@ const server = createServer(async (req, res) => {
         { value: Q?.dividendYield != null ? Math.round(Q.dividendYield * 10000) / 100 : null, src: 'Yahoo' },
       ]);
       const debtEquity   = fv('debtEquity',   [{ value: S?.debtEquity,    src: 'Screener'  }, { value: AV?.debtEquity,   src: 'AlphaVantage' }, { value: F?.debtEquity,   src: 'Yahoo' }]);
-      const currentRatio = fv('currentRatio', [{ value: AV?.currentRatio, src: 'AlphaVantage' }, { value: F?.currentRatio, src: 'Yahoo' }]);
+      const currentRatio = fv('currentRatio', [{ value: S?.currentRatio, src: 'Screener' }, { value: AV?.currentRatio, src: 'AlphaVantage' }, { value: F?.currentRatio, src: 'Yahoo' }]);
       const evEbitda     = fv('evEbitda',     [{ value: F?.evEbitda,      src: 'Yahoo'     }, { value: AV?.evEbitda,    src: 'AlphaVantage' }]);
       const pb           = fv('pb',           [{ value: Q?.priceToBook,   src: 'Yahoo'     }, { value: IA?.pb,          src: 'IndianAPI'    }, { value: AV?.pb, src: 'AlphaVantage' }]);
       const beta         = fv('beta',         [{ value: Q?.beta,          src: 'Yahoo'     }, { value: AV?.beta,        src: 'AlphaVantage' }]);
