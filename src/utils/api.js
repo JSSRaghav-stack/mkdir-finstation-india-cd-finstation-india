@@ -317,6 +317,10 @@ export async function fetchStockDetail(ticker) {
     revenue, netProfit, ebitdaMargin, roe, roce, netMargin,
     debtEquity, currentRatio,
     bookValue,
+    // Balance sheet from Screener (for accurate DCF net debt)
+    totalBorrowings:    screener?.totalBorrowings    ?? null,
+    cashAndEquivalents: screener?.cashAndEquivalents ?? null,
+    shareholderEquity:  screener?.shareholderEquity  ?? null,
     // Analyst data from IndianAPI
     analystRating:  ia?.analystRating  || null,
     analystReco:    ia?.analystReco    || null,

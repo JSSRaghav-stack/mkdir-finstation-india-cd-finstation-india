@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { STOCK_LIST } from '../data/mockData.js';
+import { fetchStockDetail } from '../utils/api.js';
 
 const REPORT_TYPES = ['Quick Note', 'Full Report'];
 const STANCES = ['Neutral', 'Bull Case', 'Bear Case'];
@@ -202,8 +203,16 @@ export default function AIResearch() {
   const [reportMeta, setReportMeta] = useState(null);
   const [error, setError] = useState('');
   const [mobileView, setMobileView] = useState('config'); // 'config' | 'report'
+  const [liveStockData, setLiveStockData] = useState(null);
 
-  const msgCycleRef = React.useRef(null);
+  const msgCycleRef = useRef(null);
+
+  // Fetch live stock data whenever the selected stock changes
+  useEffect(() => {
+    setLiveStockData(null);
+    if (!selectedStock) return;
+    fetchStockDetail(selectedStock).then(setLiveStockData).catch(() => {});
+  }, [selectedStock]);
 
   const startLoadingMessages = () => {
     let idx = 0;
@@ -233,18 +242,40 @@ export default function AIResearch() {
     const stockSector = stock?.sector || 'Equity';
     const wordCount = reportType === 'Quick Note' ? '500 words' : '1200 words';
 
-    const prompt = `You are a senior equity research analyst at a top Indian investment bank. Write a ${wordCount} ${reportType.toLowerCase()} on ${stockName} listed on NSE India from a ${stance.toLowerCase()} perspective.
+    // Build live data context string for the prompt
+    const sd = liveStockData;
+    const liveDataSection = sd ? `
+## Live Financial Data (use these exact numbers — do NOT invent alternatives):
+- Current Price: ₹${sd.price || 'N/A'}
+- Market Cap: ₹${sd.marketCapCr ? (sd.marketCapCr > 100000 ? `${(sd.marketCapCr/100000).toFixed(1)}L Cr` : `${sd.marketCapCr.toLocaleString()} Cr`) : 'N/A'}
+- Revenue (TTM): ₹${sd.revenue ? Math.round(sd.revenue / 100).toLocaleString('en-IN') + ' Cr' : 'N/A'}
+- Net Profit (TTM): ₹${sd.netProfit ? Math.round(sd.netProfit / 100).toLocaleString('en-IN') + ' Cr' : 'N/A'}
+- EBITDA Margin: ${sd.ebitdaMargin !== 'N/A' && sd.ebitdaMargin != null ? sd.ebitdaMargin + '%' : 'N/A'}
+- Net Margin: ${sd.netMargin !== 'N/A' && sd.netMargin != null ? sd.netMargin + '%' : 'N/A'}
+- ROE: ${sd.roe !== 'N/A' && sd.roe != null ? sd.roe + '%' : 'N/A'}
+- ROCE: ${sd.roce !== 'N/A' && sd.roce != null ? sd.roce + '%' : 'N/A'}
+- P/E Ratio: ${sd.pe !== 'N/A' && sd.pe != null ? sd.pe + 'x' : 'N/A'}
+- P/B Ratio: ${sd.pb !== 'N/A' && sd.pb != null ? sd.pb + 'x' : 'N/A'}
+- EPS (TTM): ${sd.eps !== 'N/A' && sd.eps != null ? '₹' + sd.eps : 'N/A'}
+- Book Value/Share: ${sd.bookValue !== 'N/A' && sd.bookValue != null ? '₹' + sd.bookValue : 'N/A'}
+- Dividend Yield: ${sd.dividendYield != null ? sd.dividendYield + '%' : 'N/A'}
+- Debt/Equity: ${sd.debtEquity !== 'N/A' && sd.debtEquity != null ? sd.debtEquity + 'x' : 'N/A'}
+- 52W High/Low: ₹${sd.high52w || 'N/A'} / ₹${sd.low52w || 'N/A'}
+- Sector: ${sd.sector || stockSector}
+` : '';
 
+    const prompt = `You are a senior equity research analyst at a top Indian investment bank. Write a ${wordCount} ${reportType.toLowerCase()} on ${stockName} listed on NSE India from a ${stance.toLowerCase()} perspective.
+${liveDataSection}
 Structure the report as:
 1. **Investment Summary** (2-3 lines, include a clear BUY/SELL/HOLD rating)
 2. **Company Overview** (business model, key segments, competitive moat)
-3. **Financial Performance** (revenue growth, margins, return ratios — use realistic estimates for Indian markets)
-4. **Valuation** (P/E vs sector average, DCF implied upside/downside, target price)
+3. **Financial Performance** (use the live data numbers above exactly — revenue, margins, return ratios)
+4. **Valuation** (P/E vs sector average, DCF implied upside/downside, target price using the actual current price)
 5. **Key Catalysts** (3 bullet points — what could drive the stock)
 6. **Key Risks** (3 bullet points)
 7. **Conclusion** (1 paragraph with final recommendation)
 
-Use ₹ for currency. Be specific with numbers. Sound like a real sell-side research note from IIFL, Motilal Oswal, or Kotak Securities.`;
+Use ₹ for currency. Use the exact financial figures provided above. Sound like a real sell-side research note from IIFL, Motilal Oswal, or Kotak Securities.`;
 
     const reportDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
     try {

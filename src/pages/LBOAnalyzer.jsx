@@ -154,12 +154,14 @@ export default function LBOAnalyzer() {
       const live = await fetchStockDetail(ticker);
       if (live && live.price > 0) {
         const stock = STOCK_LIST.find((s) => s.ticker === ticker);
+        const liveRevenue = live.revenue ? Math.max(1, Math.round(live.revenue / 100)) : DEFAULT_INPUTS.entryRevenue;
+        const liveMargin  = typeof live.ebitdaMargin === 'number' ? live.ebitdaMargin : DEFAULT_INPUTS.entryEbitdaMargin;
         setInputs((prev) => ({
           ...prev,
-          targetName: live.name || stock?.name || ticker.replace('.NS', ''),
-          entryRevenue: DEFAULT_INPUTS.entryRevenue,
-          entryEbitdaMargin: DEFAULT_INPUTS.entryEbitdaMargin,
-          exitEbitdaMargin: DEFAULT_INPUTS.exitEbitdaMargin,
+          targetName:         live.name || stock?.name || ticker.replace('.NS', ''),
+          entryRevenue:       liveRevenue,
+          entryEbitdaMargin:  liveMargin,
+          exitEbitdaMargin:   Math.min(50, liveMargin + 2),
         }));
         setDataSource('live');
       }

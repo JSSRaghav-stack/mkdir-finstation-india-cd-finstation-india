@@ -147,7 +147,12 @@ export default function DCFValuation() {
         ? Math.max(1, Math.round(data.marketCapCr / data.price))
         : DEFAULT_INPUTS.sharesOutstanding;
       const debtEquityNum = typeof data.debtEquity === 'number' ? data.debtEquity : 0;
-      const netDebt = Math.max(0, Math.round(debtEquityNum * (data.marketCapCr * 0.3 / (data.price || 1))));
+      // Use actual balance sheet figures when available; otherwise estimate from D/E
+      const netDebt = data.totalBorrowings != null
+        ? Math.max(0, Math.round((data.totalBorrowings || 0) - (data.cashAndEquivalents || 0)))
+        : debtEquityNum > 0 && data.marketCapCr > 0
+          ? Math.round(debtEquityNum / (1 + debtEquityNum) * data.marketCapCr)
+          : DEFAULT_INPUTS.netDebt;
       return {
         baseRevenue: revenue,
         sharesOutstanding: shares,
