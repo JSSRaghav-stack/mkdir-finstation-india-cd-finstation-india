@@ -37,6 +37,59 @@ const INDIAN_API_TTL = 90 * 1000; // 90s cache (500 req/month limit)
 const avCache = new Map();
 const AV_TTL = 5 * 60 * 1000; // 5-min cache (25 req/day free limit)
 
+// ─── Field validation bounds ───────────────────────────────────────────────
+// Values outside these ranges are almost certainly data errors → rejected
+const FIELD_BOUNDS = {
+  pe:            { min: 0,      max: 999   }, // negative P/E means loss (handled separately)
+  eps:           { min: -9999,  max: 99999 },
+  roe:           { min: -100,   max: 500   }, // some holding cos legitimate > 100
+  roce:          { min: -100,   max: 200   },
+  dividendYield: { min: 0,      max: 25    }, // > 25% = almost certainly basis-points error
+  bookValue:     { min: 0.01,   max: 1e7   },
+  debtEquity:    { min: 0,      max: 50    }, // negative debt ignored (net cash = 0 D/E)
+  currentRatio:  { min: 0.01,   max: 50    },
+  opmPercent:    { min: -100,   max: 100   },
+  pb:            { min: 0.01,   max: 500   },
+  evEbitda:      { min: 0,      max: 500   },
+  beta:          { min: -5,     max: 10    },
+  revenueCr:     { min: 0.01,   max: 5e7   },
+  netProfitCr:   { min: -5e6,   max: 5e6   },
+  marketCapCr:   { min: 0.01,   max: 5e7   },
+};
+
+// Validate + normalise a single field value. Returns number or null.
+function validated(field, raw, source, logs) {
+  if (raw === null || raw === undefined || raw === '' || raw === 'N/A') return null;
+  const v = typeof raw === 'number' ? raw
+    : parseFloat(String(raw).replace(/[,%\u20B9\s]/g, ''));
+  if (!isFinite(v) || isNaN(v)) {
+    logs.push(`SKIP  ${field}=${JSON.stringify(raw)} [${source}]: not a number`);
+    return null;
+  }
+  const b = FIELD_BOUNDS[field];
+  if (b && (v < b.min || v > b.max)) {
+    logs.push(`REJECT ${field}=${v} [${source}]: out of bounds [${b.min}, ${b.max}]`);
+    return null;
+  }
+  return Math.round(v * 1000) / 1000; // 3 decimal places
+}
+
+// First-wins: pick the first non-null validated value from ordered candidates
+function firstValid(field, candidates, logs) {
+  for (const { value, src } of candidates) {
+    const v = validated(field, value, src, logs);
+    if (v !== null) {
+      logs.push(`USE   ${field}=${v} [${src}]`);
+      return v;
+    }
+  }
+  return null;
+}
+
+// ─── Centralized normalized stock cache (10-min TTL) ──────────────────────
+const normalizedCache = new Map();
+const NORMALIZED_TTL = 10 * 60 * 1000;
+
 async function fetchIndianAPI(endpoint, params = {}) {
   const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const url = `${INDIAN_API_BASE}${endpoint}${qs ? '?' + qs : ''}`;
@@ -742,6 +795,86 @@ function toFinnhubSymbol(symbol) {
   return `NSE:${base}`;
 }
 
+// ─── Screener fetch helper (reused by /api/screener + /api/stock-normalized) ─
+const SCREENER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Referer': 'https://www.screener.in/',
+};
+
+async function fetchScreenerStock(cleanSymbol) {
+  // Check cache first
+  const cached = screenerCache.get(cleanSymbol);
+  if (cached && (Date.now() - cached.time) < SCREENER_TTL) {
+    return { data: cached.payload?.data || null, companyName: cached.payload?.companyName || null, fromCache: true };
+  }
+  // Step 1: autosuggest
+  const searchRes = await httpsGet(
+    `https://www.screener.in/api/company/?q=${encodeURIComponent(cleanSymbol)}&autosuggest=1`,
+    { ...SCREENER_HEADERS, 'Accept': 'application/json' },
+    8000,
+  );
+  let companies;
+  try { companies = JSON.parse(searchRes.data); } catch { companies = []; }
+  if (!companies || companies.length === 0) throw new Error('Not found on Screener.in');
+
+  const company = companies.find(c =>
+    c.url.replace(/\//g, '').toUpperCase() === `COMPANY${cleanSymbol}`
+  ) || companies[0];
+
+  // Step 2: fetch company page (consolidated preferred)
+  let html = '';
+  for (const suffix of ['consolidated/', '']) {
+    try {
+      const pageRes = await httpsGet(`https://www.screener.in${company.url}${suffix}`, SCREENER_HEADERS, 20000);
+      if (pageRes.status === 200 && pageRes.data.length > 2000) { html = pageRes.data; break; }
+    } catch { continue; }
+  }
+  if (!html) throw new Error('Could not load Screener.in page');
+
+  const data = parseScreenerData(html);
+  const payload = { success: true, data, companyName: company.name };
+  screenerCache.set(cleanSymbol, { payload, time: Date.now() });
+  return { data, companyName: company.name, fromCache: false };
+}
+
+// ─── IndianAPI normalizer (converts raw API response → standard fields) ─────
+function normalizeIndianAPI(d) {
+  if (!d) return null;
+  const km = d.keyMetrics || {};
+  const fin = d.financials || {};
+  const cleanNum = (v) => v != null ? parseFloat(String(v).replace(/,/g, '')) : null;
+  const divY = cleanNum(km.dividendYield);
+  return {
+    price:         cleanNum(d.currentPrice?.NSE || d.currentPrice?.BSE),
+    high52w:       cleanNum(d.yearHigh),
+    low52w:        cleanNum(d.yearLow),
+    dayHigh:       cleanNum(d.intradayHigh),
+    dayLow:        cleanNum(d.intradayLow),
+    prevClose:     cleanNum(d.previousClose),
+    volume:        d.volume ? parseInt(String(d.volume).replace(/,/g, '')) : null,
+    open:          cleanNum(d.open),
+    pe:            cleanNum(km.pe),
+    pb:            cleanNum(km.pb),
+    eps:           cleanNum(km.eps),
+    roe:           cleanNum(km.roe),
+    roce:          cleanNum(km.roce),
+    dividendYield: divY != null ? (divY > 25 ? divY / 100 : divY) : null, // fix basis-points
+    bookValue:     cleanNum(km.bookValue),
+    marketCapCr:   km.marketCap ? Math.round(parseFloat(String(km.marketCap).replace(/,/g, '')) / 1e7) : null,
+    revenueCr:     fin.revenue   ? Math.round(parseFloat(String(fin.revenue).replace(/,/g, ''))   / 1e7) : null,
+    netProfitCr:   fin.netProfit ? Math.round(parseFloat(String(fin.netProfit).replace(/,/g, '')) / 1e7) : null,
+    opmPercent:    cleanNum(fin.operatingMargin),
+    companyProfile: d.companyProfile || null,
+    industry:       d.industry || null,
+    analystRating:  d.overallRating || null,
+    analystReco:    d.analystRecommendation || null,
+    shortTermTrend: d.shortTermTrend || null,
+    longTermTrend:  d.longTermTrend || null,
+  };
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -819,62 +952,15 @@ const server = createServer(async (req, res) => {
     } else if (pathname === '/api/screener') {
       const { symbol } = query;
       if (!symbol) throw new Error('symbol param required');
-
       const cleanSymbol = symbol.replace(/\.(NS|BO)$/i, '').toUpperCase();
-
-      // Serve from cache if fresh
-      const cached = screenerCache.get(cleanSymbol);
-      if (cached && (Date.now() - cached.time) < SCREENER_TTL) {
-        res.writeHead(200);
-        res.end(JSON.stringify(cached.payload));
-        return;
+      try {
+        const result = await fetchScreenerStock(cleanSymbol);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: result.data, companyName: result.companyName }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message, data: null }));
       }
-
-      const SCREENER_HEADERS = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.screener.in/',
-      };
-
-      // Step 1 – find company slug via Screener autosuggest
-      const searchRes = await httpsGet(
-        `https://www.screener.in/api/company/?q=${encodeURIComponent(cleanSymbol)}&autosuggest=1`,
-        { ...SCREENER_HEADERS, 'Accept': 'application/json' },
-        8000,
-      );
-      let companies;
-      try { companies = JSON.parse(searchRes.data); } catch { companies = []; }
-      if (!companies || companies.length === 0) throw new Error('Not found on Screener.in');
-
-      // Best match: URL path exactly matches the symbol
-      const company = companies.find(c =>
-        c.url.replace(/\//g, '').toUpperCase() === `COMPANY${cleanSymbol}`
-      ) || companies[0];
-
-      // Step 2 – fetch company page (consolidated preferred, standalone fallback)
-      let html = '';
-      for (const suffix of ['consolidated/', '']) {
-        try {
-          const pageRes = await httpsGet(
-            `https://www.screener.in${company.url}${suffix}`,
-            SCREENER_HEADERS,
-            18000,
-          );
-          if (pageRes.status === 200 && pageRes.data.length > 2000) {
-            html = pageRes.data;
-            break;
-          }
-        } catch { continue; }
-      }
-      if (!html) throw new Error('Could not load Screener.in page');
-
-      const data = parseScreenerData(html);
-      const payload = { success: true, data, companyName: company.name };
-      screenerCache.set(cleanSymbol, { payload, time: Date.now() });
-
-      res.writeHead(200);
-      res.end(JSON.stringify(payload));
 
     // ─── FMP endpoints ───────────────────────────────────────────────────
 
@@ -1204,6 +1290,247 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ success: true, news: news.slice(0, 20) }));
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
+
+    } else if (pathname === '/api/stock-normalized') {
+      // ── Single endpoint: fetches all sources, validates, returns clean data ──
+      // Priority: Screener > IndianAPI > Alpha Vantage > Yahoo Finance
+      const { symbol } = query;
+      if (!symbol) throw new Error('symbol param required');
+
+      const cleanSym = symbol.replace(/\.(NS|BO)$/i, '').toUpperCase();
+      const nseSym   = cleanSym.endsWith('.NS') ? cleanSym : `${cleanSym}.NS`;
+      const cacheKey = `norm_${cleanSym}`;
+      const logs     = [];
+      const t0       = Date.now();
+
+      // Serve from 10-min cache if available
+      const cachedNorm = normalizedCache.get(cacheKey);
+      if (cachedNorm && (Date.now() - cachedNorm.t) < NORMALIZED_TTL) {
+        logs.push(`CACHE HIT (${Math.round((Date.now() - cachedNorm.t) / 1000)}s old)`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: cachedNorm.d, cached: true, logs }));
+        return;
+      }
+
+      // ── Phase 1: Fetch Yahoo quote + Screener in parallel (always) ──────────
+      const [yahooQ, yahooF, screenerResult] = await Promise.all([
+        // Yahoo quote (price, beta, 52W, P/B, EV/EBITDA)
+        (async () => {
+          try {
+            const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(nseSym)}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,regularMarketPreviousClose,marketCap,trailingPE,priceToBook,dividendYield,beta,shortName,longName,fiftyTwoWeekHigh,fiftyTwoWeekLow,regularMarketDayHigh,regularMarketDayLow,regularMarketOpen,currency,exchange,epsTrailingTwelveMonths,industry`;
+            const data = await fetchYF(url);
+            return data?.quoteResponse?.result?.[0] || null;
+          } catch (e) { logs.push(`WARN Yahoo quote: ${e.message}`); return null; }
+        })(),
+        // Yahoo fundamentals (D/E, current ratio, EV/EBITDA)
+        (async () => {
+          try {
+            const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(nseSym)}?modules=financialData,defaultKeyStatistics`;
+            const data = await fetchYF(url);
+            const r = data?.quoteSummary?.result?.[0];
+            if (!r) return null;
+            const fd = r.financialData || {}, ks = r.defaultKeyStatistics || {};
+            return {
+              roe:          fd.returnOnEquity?.raw != null ? Math.round(fd.returnOnEquity.raw * 1000) / 10 : null,
+              debtEquity:   fd.debtToEquity?.raw   != null ? Math.round(fd.debtToEquity.raw * 100)  / 100 : null,
+              currentRatio: fd.currentRatio?.raw   != null ? Math.round(fd.currentRatio.raw * 100)  / 100 : null,
+              evEbitda:     ks.enterpriseToEbitda?.raw != null ? Math.round(ks.enterpriseToEbitda.raw * 10) / 10 : null,
+              revenue:      Math.round((fd.totalRevenue?.raw || 0) / 1e5),   // → Cr*100 units
+              netProfit:    Math.round((fd.netIncomeToCommon?.raw || 0) / 1e5),
+            };
+          } catch (e) { logs.push(`WARN Yahoo fundamentals: ${e.message}`); return null; }
+        })(),
+        // Screener (primary Indian fundamentals)
+        (async () => {
+          try {
+            const result = await fetchScreenerStock(cleanSym);
+            logs.push(`Screener: ${result.fromCache ? 'cache' : 'live'} → ${Object.keys(result.data || {}).join(', ') || 'empty'}`);
+            return result.data || null;
+          } catch (e) { logs.push(`WARN Screener: ${e.message}`); return null; }
+        })(),
+      ]);
+
+      // ── Phase 2: Check if Screener is missing critical fields ──────────────
+      const screenerCritical = ['revenueCr', 'netProfitCr', 'pe', 'roe', 'eps'];
+      const screenerHas = screenerCritical.filter(f => screenerResult?.[f] != null).length;
+      logs.push(`Screener coverage: ${screenerHas}/${screenerCritical.length} critical fields`);
+
+      // Fetch fallbacks only if Screener is incomplete (< 2 critical fields)
+      let iaRaw = null, avResult = null;
+      if (screenerHas < 2) {
+        logs.push(`FALLBACK: Screener insufficient → fetching IndianAPI + Alpha Vantage`);
+        [iaRaw, avResult] = await Promise.all([
+          (async () => {
+            try {
+              const name = cleanSym.replace(/\s+(limited|ltd|industries|corp)$/i, '').trim();
+              const cacheKey = `iapi_${name.toLowerCase()}`;
+              const cIA = indianApiCache.get(cacheKey);
+              if (cIA && (Date.now() - cIA.t) < INDIAN_API_TTL) return cIA.d;
+              const d = await fetchIndianAPI('/stock', { name });
+              indianApiCache.set(cacheKey, { d, t: Date.now() });
+              logs.push(`IndianAPI: fetched`);
+              return d;
+            } catch (e) { logs.push(`WARN IndianAPI: ${e.message}`); return null; }
+          })(),
+          (async () => {
+            try {
+              const avSym = `${cleanSym}.BSE`;
+              const cKey = `av_ov_${cleanSym.toLowerCase()}`;
+              const cAV = avCache.get(cKey);
+              if (cAV && (Date.now() - cAV.t) < AV_TTL) return cAV.d;
+              const raw = await fetchAlphaVantage('OVERVIEW', avSym);
+              if (!raw.Symbol) throw new Error('No AV data');
+              const safe = (v) => (v && v !== 'None' && v !== '-' ? v : null);
+              const safeF = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+              const d = {
+                pe: safeF(raw.PERatio), pb: safeF(raw.PriceToBookRatio), eps: safeF(raw.EPS),
+                roe: raw.ReturnOnEquityTTM ? Math.round(safeF(raw.ReturnOnEquityTTM) * 1000) / 10 : null,
+                dividendYield: raw.DividendYield ? Math.round(safeF(raw.DividendYield) * 10000) / 100 : null,
+                bookValue: safeF(raw.BookValue),
+                revenueCr: raw.RevenueTTM ? Math.round(parseFloat(raw.RevenueTTM) / 1e7) : null,
+                netProfitCr: raw.NetIncomeTTM ? Math.round(parseFloat(raw.NetIncomeTTM) / 1e7) : null,
+                opmPercent: raw.OperatingMarginTTM ? Math.round(safeF(raw.OperatingMarginTTM) * 1000) / 10 : null,
+                high52w: safeF(raw['52WeekHigh']), low52w: safeF(raw['52WeekLow']),
+                beta: safeF(raw.Beta), debtEquity: safeF(raw.DebtToEquityRatio),
+                currentRatio: safeF(raw.CurrentRatio), evEbitda: safeF(raw.EVToEBITDA),
+                marketCapCr: raw.MarketCapitalization ? Math.round(parseFloat(raw.MarketCapitalization) / 1e7) : null,
+                name: safe(raw.Name), sector: safe(raw.Sector), description: safe(raw.Description),
+              };
+              avCache.set(cKey, { d, t: Date.now() });
+              logs.push(`AlphaVantage: fetched`);
+              return d;
+            } catch (e) { logs.push(`WARN AlphaVantage: ${e.message}`); return null; }
+          })(),
+        ]);
+      }
+
+      const S  = screenerResult;           // Screener
+      const IA = normalizeIndianAPI(iaRaw); // IndianAPI (normalized)
+      const AV = avResult;                  // Alpha Vantage
+      const Q  = yahooQ;                   // Yahoo quote
+      const F  = yahooF;                   // Yahoo fundamentals
+
+      // ── Phase 3: Merge with strict priority + validate all values ──────────
+      const fv = (field, candidates) => firstValid(field, candidates, logs);
+
+      // Price always from Yahoo (most real-time)
+      const price     = Q?.regularMarketPrice || IA?.price || null;
+      const marketCap = Q?.marketCap ? Math.round(Q.marketCap / 1e7) : null;
+      const mkCapCr   = marketCap || S?.marketCapCr || AV?.marketCapCr || IA?.marketCapCr || null;
+
+      const pe  = fv('pe',  [
+        { value: S?.pe,              src: 'Screener'     },
+        { value: IA?.pe,             src: 'IndianAPI'    },
+        { value: AV?.pe,             src: 'AlphaVantage' },
+        { value: Q?.trailingPE,      src: 'Yahoo'        },
+      ]);
+      const eps = fv('eps', [
+        { value: S?.eps,                      src: 'Screener'     },
+        { value: IA?.eps,                     src: 'IndianAPI'    },
+        { value: AV?.eps,                     src: 'AlphaVantage' },
+        { value: Q?.epsTrailingTwelveMonths,  src: 'Yahoo'        },
+      ]);
+      const roe = fv('roe', [
+        { value: S?.roe,         src: 'Screener'     },
+        { value: IA?.roe,        src: 'IndianAPI'    },
+        { value: AV?.roe,        src: 'AlphaVantage' },
+        { value: F?.roe,         src: 'Yahoo'        },
+      ]);
+      const roce        = fv('roce',          [{ value: S?.roce,          src: 'Screener'  }, { value: IA?.roce,     src: 'IndianAPI'    }]);
+      const opmPercent  = fv('opmPercent',    [{ value: S?.opmPercent,    src: 'Screener'  }, { value: IA?.opmPercent, src: 'IndianAPI'  }, { value: AV?.opmPercent, src: 'AlphaVantage' }]);
+      const revenueCr   = fv('revenueCr',     [{ value: S?.revenueCr,     src: 'Screener'  }, { value: IA?.revenueCr,  src: 'IndianAPI'  }, { value: AV?.revenueCr,  src: 'AlphaVantage' }]);
+      const netProfitCr = fv('netProfitCr',   [{ value: S?.netProfitCr,   src: 'Screener'  }, { value: IA?.netProfitCr,src: 'IndianAPI'  }, { value: AV?.netProfitCr,src: 'AlphaVantage' }]);
+      const bookValue   = fv('bookValue',     [{ value: S?.bookValue,     src: 'Screener'  }, { value: IA?.bookValue,  src: 'IndianAPI'  }, { value: AV?.bookValue,  src: 'AlphaVantage' }]);
+      const dividendYield = fv('dividendYield', [
+        { value: S?.dividendYield,   src: 'Screener'     },
+        { value: IA?.dividendYield,  src: 'IndianAPI'    },
+        { value: AV?.dividendYield,  src: 'AlphaVantage' },
+        { value: Q?.dividendYield != null ? Math.round(Q.dividendYield * 10000) / 100 : null, src: 'Yahoo' },
+      ]);
+      const debtEquity   = fv('debtEquity',   [{ value: S?.debtEquity,    src: 'Screener'  }, { value: AV?.debtEquity,   src: 'AlphaVantage' }, { value: F?.debtEquity,   src: 'Yahoo' }]);
+      const currentRatio = fv('currentRatio', [{ value: AV?.currentRatio, src: 'AlphaVantage' }, { value: F?.currentRatio, src: 'Yahoo' }]);
+      const evEbitda     = fv('evEbitda',     [{ value: F?.evEbitda,      src: 'Yahoo'     }, { value: AV?.evEbitda,    src: 'AlphaVantage' }]);
+      const pb           = fv('pb',           [{ value: Q?.priceToBook,   src: 'Yahoo'     }, { value: IA?.pb,          src: 'IndianAPI'    }, { value: AV?.pb, src: 'AlphaVantage' }]);
+      const beta         = fv('beta',         [{ value: Q?.beta,          src: 'Yahoo'     }, { value: AV?.beta,        src: 'AlphaVantage' }]);
+
+      // Calculated: P/E from price/EPS only if no authoritative source has it
+      let peOut = pe;
+      if (peOut === null && price > 0 && eps !== null && eps > 0) {
+        const calc = Math.round((price / eps) * 10) / 10;
+        peOut = validated('pe', calc, 'calculated', logs);
+        if (peOut !== null) logs.push(`USE   pe=${peOut} [calculated from price/eps]`);
+      }
+
+      // P/B from price/bookValue only if no source has it
+      let pbOut = pb;
+      if (pbOut === null && price > 0 && bookValue != null && bookValue > 0) {
+        pbOut = validated('pb', Math.round((price / bookValue) * 100) / 100, 'calculated', logs);
+      }
+
+      // Net Margin calculated
+      const netMarginCalc = revenueCr != null && revenueCr > 0 && netProfitCr != null
+        ? Math.round((netProfitCr / revenueCr) * 1000) / 10 : null;
+
+      // ── Require at least price or core fundamentals ───────────────────────
+      if (!price && peOut === null && revenueCr === null) {
+        console.warn(`[STOCK-NORMALIZED] ${cleanSym}: no usable data from any source`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Data not available', data: null, logs }));
+        return;
+      }
+
+      const data = {
+        // Identity
+        name:        Q?.longName  || Q?.shortName || AV?.name  || cleanSym,
+        ticker:      Q?.symbol    || nseSym,
+        sector:      Q?.industry  || AV?.sector   || IA?.industry  || null,
+        exchange:    Q?.exchange === 'NSI' ? 'NSE' : (Q?.exchange || 'NSE'),
+        description: IA?.companyProfile || AV?.description || null,
+        // Price
+        price:       price                          || null,
+        change:      Q?.regularMarketChange         || null,
+        changePct:   Q?.regularMarketChangePercent  || null,
+        volume:      Q?.regularMarketVolume         || null,
+        open:        Q?.regularMarketOpen           || null,
+        prevClose:   Q?.regularMarketPreviousClose  || null,
+        dayHigh:     Q?.regularMarketDayHigh        || IA?.dayHigh  || null,
+        dayLow:      Q?.regularMarketDayLow         || IA?.dayLow   || null,
+        high52w:     Q?.fiftyTwoWeekHigh            || IA?.high52w  || AV?.high52w  || null,
+        low52w:      Q?.fiftyTwoWeekLow             || IA?.low52w   || AV?.low52w   || null,
+        marketCapCr: mkCapCr,
+        marketCap:   mkCapCr ? String(mkCapCr) : null,
+        // Validated fundamentals (null = data not available — do NOT estimate)
+        pe: peOut, pb: pbOut, eps, roe, roce, opmPercent,
+        ebitdaMargin: opmPercent, // alias used by DCF/LBO
+        dividendYield, bookValue, debtEquity, currentRatio, evEbitda, beta,
+        revenueCr, netProfitCr,
+        // Scaled for legacy consumers (revenue × 100 = internal unit)
+        revenue:    revenueCr   != null ? revenueCr   * 100 : null,
+        netProfit:  netProfitCr != null ? netProfitCr * 100 : null,
+        netMargin:  netMarginCalc,
+        // Balance sheet (only Screener provides these reliably)
+        totalBorrowings:    S?.totalBorrowings    ?? null,
+        cashAndEquivalents: S?.cashAndEquivalents ?? null,
+        shareholderEquity:  S?.shareholderEquity  ?? null,
+        // Analyst data (IndianAPI)
+        analystRating:  IA?.analystRating  || null,
+        analystReco:    IA?.analystReco    || null,
+        shortTermTrend: IA?.shortTermTrend || null,
+        longTermTrend:  IA?.longTermTrend  || null,
+      };
+
+      // Cache result
+      normalizedCache.set(cacheKey, { d: data, t: Date.now() });
+      if (normalizedCache.size > 200) {
+        const oldest = [...normalizedCache.entries()].sort((a, b) => a[1].t - b[1].t)[0];
+        normalizedCache.delete(oldest[0]);
+      }
+
+      const elapsed = Date.now() - t0;
+      console.log(`[NORM] ${cleanSym} | Screener:${screenerHas}/${screenerCritical.length} | IA:${iaRaw?'✓':'—'} | AV:${avResult?'✓':'—'} | ${elapsed}ms`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, data, logs }));
 
     } else if (pathname === '/api/alphavantage/overview') {
       // Alpha Vantage OVERVIEW — company fundamentals

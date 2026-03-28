@@ -226,167 +226,77 @@ export async function fetchAlphaVantageData(ticker) {
   }
 }
 
+// ── Primary entry point: uses server-side normalized endpoint ────────────────
+// All validation, priority merging, and caching happens server-side.
+// Returns a flat object with consistent field names used by ALL pages
+// (CompanyIntel, DCF, LBO, AIResearch, Dashboard).
+// Null fields = data genuinely not available (never estimated/assumed).
 export async function fetchStockDetail(ticker) {
-  // Fetch all five sources in parallel
-  const [quotes, fundamentals, screener, indianAPI, alphaVantage] = await Promise.all([
-    fetchQuote(ticker),
-    fetchFundamentals(ticker),
-    fetchScreenerData(ticker),
-    fetchIndianAPIStock(ticker, null),
-    fetchAlphaVantageData(ticker),
-  ]);
-  const av = alphaVantage;
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/stock-normalized?symbol=${encodeURIComponent(ticker)}`,
+      { signal: AbortSignal.timeout(40000) }, // Screener can be slow
+    );
+    const json = await res.json();
+    if (!json?.success || !json.data) return null;
 
-  const q = quotes?.[0] || null;
-  const ia = indianAPI; // IndianAPI data (may be null)
+    const d = json.data;
 
-  // If all sources failed, return null
-  const hasYahoo    = q && q.regularMarketPrice > 0;
-  const hasScreener = screener && (screener.revenueCr != null || screener.pe != null);
-  const hasIndian   = ia && (ia.price != null || ia.pe != null);
-  const hasAV       = av && (av.pe != null || av.revenueCr != null);
+    // Normalise null → 'N/A' for display fields that expect a string sentinel
+    const num = (v) => (v !== null && v !== undefined ? v : null);
+    const display = (v) => (v !== null && v !== undefined ? v : 'N/A');
 
-  if (!hasYahoo && !hasScreener && !hasIndian && !hasAV) return null;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // DATA PRIORITY: Screener (TTM, most accurate for India) >
-  //               IndianAPI (live, analyst data) >
-  //               Alpha Vantage (fundamentals backup) >
-  //               Yahoo Finance (price, P/B, Beta, EV/EBITDA)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // ── Price — Yahoo > IndianAPI > Alpha Vantage ──────────────────────────
-  const price = q?.regularMarketPrice || ia?.price || 0;
-
-  // ── Market Cap — Yahoo > Screener > IndianAPI > Alpha Vantage ──────────
-  const marketCapCr = q?.marketCap
-    ? Math.round(q.marketCap / 10000000)
-    : (screener?.marketCapCr || ia?.marketCapCr || av?.marketCapCr || 0);
-
-  // ── EPS — Screener TTM > IndianAPI > Alpha Vantage > Yahoo ────────────
-  const eps = screener?.eps != null
-    ? Math.round(screener.eps * 100) / 100
-    : ia?.eps != null
-      ? Math.round(ia.eps * 100) / 100
-      : av?.eps != null
-        ? Math.round(av.eps * 100) / 100
-        : (q?.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A');
-
-  // ── P/E — Screener > IndianAPI > Alpha Vantage > Yahoo ────────────────
-  let pe = screener?.pe != null
-    ? Math.round(screener.pe * 10) / 10
-    : ia?.pe != null
-      ? Math.round(ia.pe * 10) / 10
-      : av?.pe != null
-        ? Math.round(av.pe * 10) / 10
-        : (q?.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A');
-  // Only calculate from price/EPS if no authoritative source gave a P/E
-  if (pe === 'N/A' && price > 0 && eps !== 'N/A' && eps > 0) {
-    pe = Math.round((price / eps) * 10) / 10;
+    return {
+      // Identity
+      name:        d.name        || ticker.replace(/\.(NS|BO)$/i, ''),
+      ticker:      d.ticker      || ticker,
+      sector:      d.sector      || 'N/A',
+      exchange:    d.exchange    || 'NSE',
+      description: d.description || null,
+      // Price & market
+      price:       num(d.price)    || 0,
+      marketCap:   d.marketCapCr   ? d.marketCapCr.toString() : 'N/A',
+      marketCapCr: num(d.marketCapCr) || 0,
+      high52w:     num(d.high52w)  || 0,
+      low52w:      num(d.low52w)   || 0,
+      dayHigh:     num(d.dayHigh)  || 0,
+      dayLow:      num(d.dayLow)   || 0,
+      open:        num(d.open)     || 0,
+      prevClose:   num(d.prevClose)|| 0,
+      volume:      num(d.volume)   || 0,
+      change:      num(d.change)   || 0,
+      changePct:   num(d.changePct)|| 0,
+      // Fundamentals — null means genuinely not available
+      pe:            display(d.pe),
+      pb:            display(d.pb),
+      eps:           display(d.eps),
+      roe:           display(d.roe),
+      roce:          display(d.roce),
+      ebitdaMargin:  display(d.ebitdaMargin),
+      netMargin:     display(d.netMargin),
+      dividendYield: d.dividendYield ?? 0,
+      bookValue:     display(d.bookValue),
+      debtEquity:    display(d.debtEquity),
+      currentRatio:  display(d.currentRatio),
+      evEbitda:      display(d.evEbitda),
+      beta:          display(d.beta),
+      // Financials (internal unit: Cr × 100 for legacy compat)
+      revenue:    d.revenue    ?? 0, // already in Cr*100 from server
+      netProfit:  d.netProfit  ?? 0,
+      // Balance sheet (for DCF net debt)
+      totalBorrowings:    num(d.totalBorrowings),
+      cashAndEquivalents: num(d.cashAndEquivalents),
+      shareholderEquity:  num(d.shareholderEquity),
+      // Analyst (IndianAPI)
+      analystRating:  d.analystRating  || null,
+      analystReco:    d.analystReco    || null,
+      shortTermTrend: d.shortTermTrend || null,
+      longTermTrend:  d.longTermTrend  || null,
+    };
+  } catch (e) {
+    console.warn('fetchStockDetail error:', e.message);
+    return null;
   }
-
-  // ── P/B — Yahoo > IndianAPI > Alpha Vantage > calculated ──────────────
-  let pb = q?.priceToBook ? Math.round(q.priceToBook * 100) / 100 : 'N/A';
-  if (pb === 'N/A' && ia?.pb != null) pb = Math.round(ia.pb * 100) / 100;
-  if (pb === 'N/A' && av?.pb != null) pb = Math.round(av.pb * 100) / 100;
-  if (pb === 'N/A' && price > 0) {
-    const bv = screener?.bookValue || ia?.bookValue || av?.bookValue;
-    if (bv > 0) pb = Math.round((price / bv) * 100) / 100;
-  }
-
-  // ── Revenue / Net Profit — Screener > IndianAPI > Alpha Vantage > Yahoo ─
-  const revenue   = screener?.revenueCr   != null ? Math.round(screener.revenueCr * 100)
-    : ia?.revenueCr   != null ? Math.round(ia.revenueCr * 100)
-    : av?.revenueCr   != null ? Math.round(av.revenueCr * 100)
-    : (fundamentals?.revenue || 0);
-  const netProfit = screener?.netProfitCr != null ? Math.round(screener.netProfitCr * 100)
-    : ia?.netProfitCr != null ? Math.round(ia.netProfitCr * 100)
-    : av?.netProfitCr != null ? Math.round(av.netProfitCr * 100)
-    : (fundamentals?.netProfit || 0);
-
-  // ── EBITDA Margin / ROE / ROCE — Screener > IndianAPI > Alpha Vantage > Yahoo ─
-  const ebitdaMargin = screener?.opmPercent != null ? screener.opmPercent
-    : ia?.opmPercent  != null ? ia.opmPercent
-    : av?.opmPercent  != null ? av.opmPercent
-    : (fundamentals?.ebitdaMargin ?? 'N/A');
-  const roe  = screener?.roe  != null ? screener.roe
-    : ia?.roe  != null ? ia.roe
-    : av?.roe  != null ? av.roe
-    : (fundamentals?.roe ?? 'N/A');
-  const roce = screener?.roce != null ? screener.roce
-    : ia?.roce != null ? ia.roce
-    : 'N/A'; // Alpha Vantage doesn't provide ROCE (Indian metric)
-
-  const netMargin = (revenue > 0 && netProfit > 0)
-    ? Math.round((netProfit / revenue) * 1000) / 10
-    : 'N/A';
-
-  // ── Debt/Equity — Screener > Alpha Vantage > Yahoo ────────────────────
-  const debtEquity = screener?.debtEquity != null ? screener.debtEquity
-    : av?.debtEquity != null ? av.debtEquity
-    : (fundamentals?.debtEquity ?? 'N/A');
-
-  // ── Current Ratio — Alpha Vantage > Yahoo ─────────────────────────────
-  const currentRatio = av?.currentRatio != null ? av.currentRatio
-    : (fundamentals?.currentRatio ?? 'N/A');
-
-  // ── Dividend Yield — Screener > IndianAPI > Alpha Vantage > Yahoo ──────
-  const dividendYield = screener?.dividendYield != null ? screener.dividendYield
-    : ia?.dividendYield  != null ? ia.dividendYield
-    : av?.dividendYield  != null ? av.dividendYield
-    : (q?.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0);
-
-  // ── Book Value — Screener > IndianAPI > Alpha Vantage ─────────────────
-  const bookValue = screener?.bookValue ?? ia?.bookValue ?? av?.bookValue ?? 'N/A';
-
-  // ── EV/EBITDA — Yahoo > Alpha Vantage ─────────────────────────────────
-  const evEbitda = fundamentals?.evEbitda != null && fundamentals.evEbitda !== 'N/A'
-    ? fundamentals.evEbitda
-    : av?.evEbitda ?? 'N/A';
-
-  // ── Beta — Yahoo > Alpha Vantage ──────────────────────────────────────
-  const beta = q?.beta
-    ? Math.round(q.beta * 100) / 100
-    : av?.beta ?? 'N/A';
-
-  // ── 52-Week High/Low — Yahoo > IndianAPI > Alpha Vantage ──────────────
-  const high52w = q?.fiftyTwoWeekHigh  || ia?.high52w || av?.high52w || 0;
-  const low52w  = q?.fiftyTwoWeekLow   || ia?.low52w  || av?.low52w  || 0;
-
-  return {
-    name:        q?.longName || q?.shortName || av?.name || ia?.companyProfile?.split('.')[0] || ticker.replace('.NS', ''),
-    ticker:      q?.symbol   || ticker,
-    sector:      q?.industry || av?.sector || ia?.industry || 'N/A',
-    exchange:    q?.exchange === 'NSI' ? 'NSE' : (q?.exchange || 'NSE'),
-    description: ia?.companyProfile || av?.description || `${q?.longName || q?.shortName || ticker} listed on NSE.`,
-    price,
-    marketCap:   marketCapCr ? marketCapCr.toString() : 'N/A',
-    marketCapCr,
-    high52w, low52w,
-    pe, pb, eps,
-    evEbitda,
-    dividendYield,
-    beta,
-    revenue, netProfit, ebitdaMargin, roe, roce, netMargin,
-    debtEquity, currentRatio,
-    bookValue,
-    // Balance sheet from Screener (for accurate DCF net debt)
-    totalBorrowings:    screener?.totalBorrowings    ?? null,
-    cashAndEquivalents: screener?.cashAndEquivalents ?? null,
-    shareholderEquity:  screener?.shareholderEquity  ?? null,
-    // Analyst data from IndianAPI
-    analystRating:  ia?.analystRating  || null,
-    analystReco:    ia?.analystReco    || null,
-    shortTermTrend: ia?.shortTermTrend || null,
-    longTermTrend:  ia?.longTermTrend  || null,
-    dayHigh:     q?.regularMarketDayHigh || ia?.dayHigh || 0,
-    dayLow:      q?.regularMarketDayLow          || 0,
-    open:        q?.regularMarketOpen            || 0,
-    prevClose:   q?.regularMarketPreviousClose   || 0,
-    volume:      q?.regularMarketVolume          || 0,
-    change:      q?.regularMarketChange          || 0,
-    changePct:   q?.regularMarketChangePercent   || 0,
-  };
 }
 
 // ─── FMP API functions ─────────────────────────────────────────────────────
