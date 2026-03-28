@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { STOCK_LIST, DETAILED_STOCK_DATA } from '../data/mockData.js';
+import { STOCK_LIST } from '../data/mockData.js';
 import { formatMarketCap } from '../utils/formatters.js';
 import { fetchStockDetail, fetchChart, searchStocks, fetchStockSpecificNews } from '../utils/api.js';
 
@@ -199,76 +199,46 @@ export default function CompanyIntel() {
       if (news && news.length > 0) setLiveNews(news);
     }).catch(() => {});
 
-    // Try live data first
     try {
       const [liveDetail, liveChart] = await Promise.all([
         fetchStockDetail(stock.ticker),
         fetchChart(stock.ticker, '1y', '1d'),
       ]);
 
-      const hasUsableData = liveDetail && (liveDetail.price > 0 || liveDetail.pe !== 'N/A' || liveDetail.revenue > 0);
-      if (hasUsableData) {
-        // Attach news: use mock news if available, otherwise generate from sector templates
-        // news comes from liveNews state (fetched separately in background)
+      if (liveDetail && liveDetail.price > 0) {
         setStockData(liveDetail);
         setIsLive(true);
-        if (liveChart && liveChart.length > 0) {
-          setChartData(liveChart);
-        } else {
-          // Use mock price history if available
-          const mockD = DETAILED_STOCK_DATA[stock.ticker];
-          if (mockD) setChartData(mockD.priceHistory || []);
-        }
+        if (liveChart && liveChart.length > 0) setChartData(liveChart);
         setLoading(false);
         return;
       }
-    } catch {
-      // fall through to mock
-    }
+    } catch { /* fall through */ }
 
-    // Fall back to mock data, or generate minimal stub so page never shows blank
-    const mockD = DETAILED_STOCK_DATA[stock.ticker];
-    if (mockD) {
-      setStockData(mockD);
-      setChartData(mockD.priceHistory || []);
-    } else {
-      // Generate stub from STOCK_LIST info so something always renders
-      setStockData({
-        name: stock.name,
-        ticker: stock.ticker,
-        sector: stock.sector,
-        exchange: 'NSE',
-        price: 0,
-        marketCapCr: 0,
-        pe: 'N/A', pb: 'N/A', eps: 'N/A', beta: 'N/A',
-        high52w: 0, low52w: 0,
-        dividendYield: 0,
-        revenue: 0, netProfit: 0,
-        ebitdaMargin: 'N/A', roe: 'N/A', roce: 'N/A', netMargin: 'N/A',
-        debtEquity: 'N/A', currentRatio: 'N/A',
-        evEbitda: 'N/A', bookValue: 'N/A',
-        changePct: 0, change: 0,
-        description: `${stock.name} is listed on NSE under the ${stock.sector} sector.`,
-        news: [],
-      });
-      setChartData([]);
-    }
+    // If live fails, show minimal stub — never stale mock numbers
+    setStockData({
+      name: stock.name, ticker: stock.ticker,
+      sector: stock.sector, exchange: 'NSE',
+      price: null, marketCapCr: null,
+      pe: null, pb: null, eps: null, beta: null,
+      high52w: null, low52w: null, dividendYield: null,
+      revenue: null, netProfit: null,
+      ebitdaMargin: null, roe: null, roce: null, netMargin: null,
+      debtEquity: null, currentRatio: null,
+      evEbitda: null, bookValue: null,
+      changePct: null, change: null,
+      description: `${stock.name} is listed on NSE under the ${stock.sector} sector. Live data unavailable — check server connection.`,
+    });
+    setChartData([]);
     setLoading(false);
   };
 
   const rangeOpt = RANGE_OPTIONS.find((r) => r.label === range) || RANGE_OPTIONS[3];
 
-  // For mock data, slice by days; for live data, use all (already filtered by range fetch)
-  const displayChart = isLive
-    ? chartData
-    : (() => {
-        const daysMap = { '1M': 21, '3M': 63, '6M': 126, '1Y': 252 };
-        return chartData.slice(-(daysMap[range] || 252));
-      })();
+  const displayChart = chartData; // always live data, no mock slicing needed
 
   const handleRangeChange = async (newRange) => {
     setRange(newRange);
-    if (isLive && selected) {
+    if (selected) {
       const opt = RANGE_OPTIONS.find((r) => r.label === newRange);
       if (opt) {
         const liveChart = await fetchChart(selected.ticker, opt.range, opt.interval);

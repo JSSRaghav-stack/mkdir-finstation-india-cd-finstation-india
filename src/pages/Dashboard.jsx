@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { MARKET_INDICES, ALL_NIFTY50, SECTOR_DATA, MOCK_NEWS } from '../data/mockData.js';
+import { MARKET_INDICES, ALL_NIFTY50, MOCK_NEWS } from '../data/mockData.js';
 import { formatVolume } from '../utils/formatters.js';
-import { fetchIndices, fetchNifty50Quotes, fetchChart, fetchIndiaNews } from '../utils/api.js';
+import { fetchIndices, fetchNifty50Quotes, fetchChart, fetchIndiaNews, computeSectorHeatmap } from '../utils/api.js';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -107,7 +107,7 @@ function GainersLosersTable({ stocks, type }) {
   return (
     <div className="rounded-xl" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
       <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid #1e1e2e', borderRadius: '12px 12px 0 0' }}>
-        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '📈 Top Gainers' : '📉 Top Losers'}</span>
+        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '▲ Top Gainers' : '▼ Top Losers'}</span>
         <span className="text-xs px-2 py-0.5 rounded" style={{ background: type==='gainers' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: type==='gainers' ? '#22c55e' : '#ef4444' }}>Nifty 50</span>
       </div>
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', borderRadius: '0 0 12px 12px' }}>
@@ -139,7 +139,7 @@ function SectorHeatmap({ sectors }) {
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
       <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
-        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>🗺 Sector Heatmap</span>
+        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Sector Heatmap · Live</span>
       </div>
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2">
         {sectors.map(sector => {
@@ -195,6 +195,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [indices, setIndices] = useState(MARKET_INDICES);
   const [stocks, setStocks] = useState(ALL_NIFTY50);
+  const [sectorData, setSectorData] = useState([]);
   const [isLive, setIsLive] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [chartModal, setChartModal] = useState(null);
@@ -207,9 +208,13 @@ export default function Dashboard() {
       const [liveIndices, liveStocks] = await Promise.all([fetchIndices(), fetchNifty50Quotes()]);
       if (!mounted.current) return;
       if (liveIndices?.nifty && liveIndices?.sensex) { setIndices(liveIndices); setIsLive(true); }
-      if (liveStocks?.length > 0) setStocks(liveStocks);
+      if (liveStocks?.length > 0) {
+        setStocks(liveStocks);
+        const liveSectors = computeSectorHeatmap(liveStocks);
+        if (liveSectors && liveSectors.length > 0) setSectorData(liveSectors);
+      }
       setLastRefresh(new Date());
-    } catch { /* keep mock */ } finally {
+    } catch { /* keep existing */ } finally {
       if (mounted.current) setLoading(false);
     }
   }, []);
@@ -306,13 +311,13 @@ export default function Dashboard() {
       </div>
 
       <div className="mb-5">
-        {loading ? <SkeletonBox w="100%" h={130} className="rounded-xl" /> : <SectorHeatmap sectors={SECTOR_DATA} />}
+        {loading ? <SkeletonBox w="100%" h={130} className="rounded-xl" /> : sectorData.length > 0 ? <SectorHeatmap sectors={sectorData} /> : null}
       </div>
 
       <div>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>📰 Indian Market News</h2>
+            <h2 className="text-sm font-semibold" style={{ color: '#94a3b8' }}>Indian Market News</h2>
             {newsLive && (
               <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)' }}>● Live</span>
             )}

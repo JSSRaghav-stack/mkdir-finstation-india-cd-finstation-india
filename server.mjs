@@ -126,6 +126,32 @@ let giftNiftyCache = null;
 let giftNiftyCacheTime = 0;
 const GIFT_NIFTY_TTL = 30 * 1000; // 30-second cache
 
+// Source 0: Yahoo Finance — most reliable, uses existing crumb/cookie
+async function fetchGiftNiftyFromYahooFinance() {
+  try {
+    const { crumb, cookie } = await getCrumb();
+    const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGIFTNIFTY&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent&crumb=${encodeURIComponent(crumb)}`;
+    const res = await httpsGet(url, {
+      ...JSON_HEADERS,
+      ...(cookie ? { 'Cookie': cookie } : {}),
+    }, 8000);
+    if (res.status !== 200) return null;
+    const data = JSON.parse(res.data);
+    const q = data?.quoteResponse?.result?.[0];
+    if (q && q.regularMarketPrice > 5000) {
+      return {
+        value: Math.round(q.regularMarketPrice * 100) / 100,
+        change: Math.round((q.regularMarketChangePercent || 0) * 100) / 100,
+        points: Math.round((q.regularMarketChange || 0) * 100) / 100,
+        source: 'Yahoo',
+      };
+    }
+  } catch (e) {
+    console.log('Gift Nifty Yahoo error:', e.message);
+  }
+  return null;
+}
+
 // Source 1: NSE's live blob storage (no auth required)
 async function fetchGiftNiftyFromNSEBlob() {
   try {
@@ -251,16 +277,21 @@ async function fetchGiftNiftyData() {
     return { ...giftNiftyCache, cached: true };
   }
 
-  // Try all sources in parallel; use first successful result
+  // Try all sources: Yahoo first (most reliable), then NSE blob, then Google, then NSE API
+  const yahooResult = await fetchGiftNiftyFromYahooFinance();
+  if (yahooResult) {
+    giftNiftyCache = yahooResult;
+    giftNiftyCacheTime = now;
+    return yahooResult;
+  }
+
   const [blobData, googleData] = await Promise.all([
     fetchGiftNiftyFromNSEBlob(),
     fetchGiftNiftyFromGoogle(),
   ]);
 
-  // NSE blob preferred; Google as fallback
   const result = blobData || googleData;
 
-  // If live scraping fails, try the cookie-gated NSE API as last resort
   if (!result) {
     const nseData = await fetchGiftNiftyFromNSEApi();
     if (nseData) {

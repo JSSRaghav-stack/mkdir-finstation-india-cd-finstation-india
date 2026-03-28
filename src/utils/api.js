@@ -107,6 +107,42 @@ export async function fetchNifty50Quotes() {
   }));
 }
 
+// Sector mapping for Nifty 50 stocks (for live sector heatmap)
+const NIFTY50_SECTOR_MAP = {
+  'RELIANCE.NS':'Energy', 'ONGC.NS':'Energy', 'BPCL.NS':'Energy',
+  'TCS.NS':'IT', 'INFY.NS':'IT', 'WIPRO.NS':'IT', 'HCLTECH.NS':'IT', 'TECHM.NS':'IT',
+  'HDFCBANK.NS':'Banking', 'ICICIBANK.NS':'Banking', 'KOTAKBANK.NS':'Banking',
+  'AXISBANK.NS':'Banking', 'SBIN.NS':'Banking', 'INDUSINDBK.NS':'Banking',
+  'BAJFINANCE.NS':'Finance', 'BAJAJFINSV.NS':'Finance', 'SBILIFE.NS':'Finance', 'SHRIRAMFIN.NS':'Finance',
+  'HINDUNILVR.NS':'FMCG', 'ITC.NS':'FMCG', 'NESTLEIND.NS':'FMCG', 'BRITANNIA.NS':'FMCG', 'TATACONSUM.NS':'FMCG',
+  'SUNPHARMA.NS':'Pharma', 'CIPLA.NS':'Pharma', 'DIVISLAB.NS':'Pharma', 'DRREDDY.NS':'Pharma', 'APOLLOHOSP.NS':'Pharma',
+  'MARUTI.NS':'Auto', 'TATAMOTORS.NS':'Auto', 'MM.NS':'Auto', 'EICHERMOT.NS':'Auto', 'HEROMOTOCO.NS':'Auto', 'BAJAJ-AUTO.NS':'Auto',
+  'LT.NS':'Infra', 'ADANIPORTS.NS':'Infra', 'BEL.NS':'Infra', 'ADANIENT.NS':'Infra',
+  'TATASTEEL.NS':'Metals', 'JSWSTEEL.NS':'Metals', 'HINDALCO.NS':'Metals',
+  'POWERGRID.NS':'Power', 'NTPC.NS':'Power', 'COALINDIA.NS':'Power',
+  'ASIANPAINT.NS':'Consumer', 'TITAN.NS':'Consumer', 'TRENT.NS':'Consumer',
+  'BHARTIARTL.NS':'Telecom',
+  'ULTRACEMCO.NS':'Cement', 'GRASIM.NS':'Cement',
+};
+
+export function computeSectorHeatmap(quotes) {
+  if (!quotes || quotes.length === 0) return null;
+  const sectors = {};
+  for (const q of quotes) {
+    const sector = NIFTY50_SECTOR_MAP[q.ticker];
+    if (!sector) continue;
+    if (!sectors[sector]) sectors[sector] = { total: 0, count: 0 };
+    sectors[sector].total += q.change || 0;
+    sectors[sector].count += 1;
+  }
+  return Object.entries(sectors)
+    .map(([name, { total, count }]) => ({
+      name,
+      change: Math.round((total / count) * 100) / 100,
+    }))
+    .sort((a, b) => b.change - a.change);
+}
+
 export async function fetchFundamentals(symbol) {
   try {
     const res = await fetch(`${API_BASE}/api/fundamentals?symbol=${encodeURIComponent(symbol)}`, { signal: AbortSignal.timeout(10000) });
