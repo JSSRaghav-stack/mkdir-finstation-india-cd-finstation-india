@@ -221,50 +221,73 @@ function parseScreenerData(html) {
   const result = {};
 
   // ── 1. Key Ratios ─────────────────────────────────────────────────────────
-  // Find the section by index to avoid premature </ul> match from nested lists
   const trIdx  = html.search(/id=["']top-ratios["']/);
   const crIdx  = html.search(/class=["'][^"']*company-ratios[^"']*["']/);
   const ratiosSectionIdx = trIdx !== -1 ? trIdx : crIdx;
 
   if (ratiosSectionIdx !== -1) {
-    // Take a chunk large enough to contain all ~10 ratios
-    const chunk = html.slice(ratiosSectionIdx, ratiosSectionIdx + 8000);
+    const chunk = html.slice(ratiosSectionIdx, ratiosSectionIdx + 10000);
 
-    // Walk through <li>...</li> blocks using indexOf (handles nested </ul> correctly)
+    // Walk <li> blocks with PROPER nesting depth tracking so nested <ul><li>
+    // inside a ratio item (popover/tooltip) doesn't truncate the block early.
     const liBlocks = [];
     let pos = 0;
     while (pos < chunk.length) {
       const start = chunk.indexOf('<li', pos);
       if (start === -1) break;
-      const end = chunk.indexOf('</li>', start);
-      if (end === -1) break;
-      liBlocks.push(chunk.slice(start, end + 5));
-      pos = end + 5;
+      // Skip past opening tag
+      const tagEnd = chunk.indexOf('>', start);
+      if (tagEnd === -1) break;
+
+      let depth = 1;
+      let sp = tagEnd + 1;
+      let blockEnd = -1;
+      while (sp < chunk.length && depth > 0) {
+        const nextOpen  = chunk.indexOf('<li',  sp);
+        const nextClose = chunk.indexOf('</li>', sp);
+        if (nextClose === -1) break;
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          depth++;
+          const ot = chunk.indexOf('>', nextOpen);
+          sp = ot !== -1 ? ot + 1 : nextOpen + 3;
+        } else {
+          depth--;
+          sp = nextClose + 5;
+          if (depth === 0) blockEnd = sp;
+        }
+      }
+      if (blockEnd === -1) break;
+      liBlocks.push(chunk.slice(start, blockEnd));
+      pos = blockEnd;
     }
 
     for (const li of liBlocks) {
-      // Name: <span class="name">...</span>
-      const nameMatch = li.match(/<span[^>]*class="[^"]*\bname\b[^"]*"[^>]*>([\s\S]*?)<\/span>/);
-      // Number: allow negative sign, decimals, commas, optional %
-      const numMatch  = li.match(/<span[^>]*class="[^"]*\bnumber\b[^"]*"[^>]*>([-\d.,\s%]+)<\/span>/);
+      // Name — try class="name", fall back to first non-empty text before numbers
+      const nameMatch = li.match(/<span[^>]*class="[^"]*\bname\b[^"]*"[^>]*>([\s\S]*?)<\/span>/)
+        || li.match(/<td[^>]*class="[^"]*\bname\b[^"]*"[^>]*>([\s\S]*?)<\/td>/);
+      // Number — try class="number", then any bold/strong tag with numeric content
+      const numMatch  = li.match(/<span[^>]*class="[^"]*\bnumber\b[^"]*"[^>]*>([-\d.,\s%]+)<\/span>/)
+        || li.match(/<b[^>]*>([-\d.,]+)<\/b>/)
+        || li.match(/<strong[^>]*>([-\d.,]+)<\/strong>/);
       if (!nameMatch || !numMatch) continue;
 
       const name  = stripTags(nameMatch[1]).toLowerCase().replace(/\s+/g, ' ').trim();
       const value = parseNum(numMatch[1]);
       if (value === null) continue;
 
-      if      (name.includes('market cap'))                                       result.marketCapCr  = value;
-      else if (name.includes('stock p/e') || name === 'p/e' || name === 'pe')    result.pe           = value;
-      else if (name === 'roe' || name.includes('return on equity'))               result.roe          = value;
-      else if (name === 'roce' || name.includes('return on capital'))             result.roce         = value;
-      else if (name.includes('dividend yield') || name.includes('div. yield'))   result.dividendYield = value;
-      else if (name.includes('book value'))                                       result.bookValue    = value;
-      else if (name === 'face value' || name === 'fv')                            result.faceValue    = value;
-      else if (name === 'eps' || name.includes('earning per share'))              result.epsKR        = value; // key-ratio EPS (may differ from P&L TTM)
+      if      (name.includes('market cap'))                                     result.marketCapCr   = value;
+      else if (name.includes('stock p/e') || name === 'p/e' || name === 'pe')  result.pe            = value;
+      else if (name === 'roe' || name.includes('return on equity'))             result.roe           = value;
+      else if (name === 'roce' || name.includes('return on capital'))           result.roce          = value;
+      else if (name.includes('dividend yield') || name.includes('div. yield')) result.dividendYield = value;
+      else if (name.includes('book value'))                                     result.bookValue     = value;
+      else if (name === 'face value' || name === 'fv')                         result.faceValue     = value;
+      else if (name === 'eps' || name.includes('earning per share'))            result.epsKR         = value;
+      else if (name === 'rsi')                                                  result.rsi           = value;
     }
   }
 
-  // ── 2. Balance Sheet (most recent column = last non-empty td) ─────────────
+  // ── 2. Balance Sheet (last non-empty cell = most recent year) ─────────────
   const bsIdx = html.indexOf('id="balance-sheet"');
   if (bsIdx !== -1) {
     const bsChunk = html.slice(bsIdx, bsIdx + 25000);
@@ -273,29 +296,29 @@ function parseScreenerData(html) {
       const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)]
         .map(m => stripTags(m[1]).replace(/,/g, '').trim());
       if (cells.length < 2) continue;
-      const label = cells[0].toLowerCase().replace(/\s+/g, '');
-      // Use last non-empty cell (most recent year in Screener)
-      const recent = [...cells].reverse().find(c => c && parseFloat(c) !== 0 && !isNaN(parseFloat(c)));
-      const val = recent != null ? parseNum(recent) : null;
+      const label  = cells[0].toLowerCase().replace(/\s+/g, '');
+      const recent = [...cells].reverse().find(c => c && !isNaN(parseFloat(c)) && parseFloat(c) !== 0);
+      const val    = recent != null ? parseNum(recent) : null;
       if (val === null) continue;
-      if      (label.includes('borrowing'))                                   result.totalBorrowings  = val;
+      if      (label.includes('borrowing'))                                     result.totalBorrowings   = val;
       else if (label.includes('shareholder') || label.includes('networth') ||
-               label === 'equity' || label.includes('shareholders'))          result.shareholderEquity = val;
+               label === 'equity' || label.includes('shareholders'))            result.shareholderEquity = val;
       else if (label.includes('cashandcash') || label.includes('cash&') ||
-               label === 'cashandequivalents')                                result.cashAndEquivalents = val;
+               label === 'cashandequivalents')                                  result.cashAndEquivalents = val;
     }
     if (result.totalBorrowings != null && result.shareholderEquity != null && result.shareholderEquity > 0) {
       result.debtEquity = Math.round((result.totalBorrowings / result.shareholderEquity) * 100) / 100;
     }
   }
 
-  // ── 3. P&L Table — find TTM column dynamically ────────────────────────────
+  // ── 3. P&L Table ──────────────────────────────────────────────────────────
   const plIdx = html.indexOf('id="profit-loss"');
   if (plIdx !== -1) {
     const plChunk = html.slice(plIdx, plIdx + 30000);
 
-    // Detect TTM column index from thead
-    let ttmColIdx = 1;
+    // Detect TTM column: prefer explicit "TTM" header; otherwise use LAST column
+    // (Screener shows years oldest→newest, latest/TTM is always the rightmost)
+    let ttmColIdx = -1; // -1 = use last column
     const thead = plChunk.match(/<thead[\s\S]*?<\/thead>/);
     if (thead) {
       const ths = [...thead[0].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)]
@@ -310,7 +333,10 @@ function parseScreenerData(html) {
         .map(m => stripTags(m[1]).replace(/,/g, '').trim());
       if (cells.length < 2) continue;
       const label = cells[0].toLowerCase().replace(/\s+/g, '');
-      const ttm   = cells[Math.min(ttmColIdx, cells.length - 1)] || cells[1];
+      // Use detected TTM index or fall back to last column (most recent)
+      const ttm = ttmColIdx >= 0
+        ? (cells[Math.min(ttmColIdx, cells.length - 1)] || cells[cells.length - 1])
+        : cells[cells.length - 1];
 
       if ((label.startsWith('sales') || label === 'revenue') && !label.includes('other') && !label.includes('growth')) {
         result.revenueCr   = parseNum(ttm);
@@ -326,7 +352,7 @@ function parseScreenerData(html) {
     }
   }
 
-  // Use key-ratio EPS if P&L didn't give one
+  // Prefer P&L EPS (TTM); fall back to key-ratio EPS
   if (result.eps == null && result.epsKR != null) result.eps = result.epsKR;
 
   return result;

@@ -183,7 +183,12 @@ export async function fetchIndianAPIStock(ticker, companyName) {
       eps:           km.eps   != null ? parseFloat(km.eps)   : null,
       roe:           km.roe   != null ? parseFloat(km.roe)   : null,
       roce:          km.roce  != null ? parseFloat(km.roce)  : null,
-      dividendYield: km.dividendYield != null ? parseFloat(km.dividendYield) : null,
+      dividendYield: (() => {
+        if (km.dividendYield == null) return null;
+        let divY = parseFloat(km.dividendYield);
+        if (divY > 25) divY = divY / 100; // basis-points → percentage (e.g. 207 → 2.07)
+        return divY;
+      })(),
       bookValue:     km.bookValue     != null ? parseFloat(km.bookValue)     : null,
       marketCapCr:   km.marketCap
         ? Math.round(parseFloat(String(km.marketCap).replace(/,/g, '')) / 10000000)
