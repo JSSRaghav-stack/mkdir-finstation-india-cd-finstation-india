@@ -31,35 +31,59 @@ const SUBTITLES = {
   lbo:       'Leveraged Buyout Analysis',
 };
 
-// ─── FinStation Logo Mark ─────────────────────────────────────────────────────
-function LogoMark({ size = 36 }) {
+// ─── FinStation Logo Mark (F + upward arrow, blue gradient) ──────────────────
+function LogoMark({ size = 36, showText = false }) {
+  const s = size;
   return (
-    <div style={{
-      width: size,
-      height: size,
-      borderRadius: size * 0.28,
-      background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 50%, #a78bfa 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexShrink: 0,
-      boxShadow: '0 0 20px rgba(99,102,241,0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
-      position: 'relative',
-      overflow: 'hidden',
-    }}>
-      {/* subtle inner shine */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: '45%',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 100%)',
-        borderRadius: `${size * 0.28}px ${size * 0.28}px 0 0`,
-      }} />
-      <svg width={size * 0.52} height={size * 0.52} viewBox="0 0 20 20" fill="none">
-        {/* stylised "F" as a chart line + letter hybrid */}
-        <path d="M4 15 L4 5 L14 5" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M4 10 L11 10" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
-        <circle cx="15" cy="12" r="2" fill="rgba(255,255,255,0.9)"/>
-        <path d="M11 10 L15 10" stroke="rgba(255,255,255,0.55)" strokeWidth="1.5" strokeDasharray="1.5 1.5"/>
+    <div style={{ display: 'flex', alignItems: 'center', gap: s * 0.32, flexShrink: 0 }}>
+      {/* Icon: F-bracket with trending arrow */}
+      <svg width={s} height={s} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="fg1" x1="0" y1="100" x2="100" y2="0" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#1565C0"/>
+            <stop offset="55%" stopColor="#2196F3"/>
+            <stop offset="100%" stopColor="#42A5F5"/>
+          </linearGradient>
+          <linearGradient id="fg2" x1="0" y1="100" x2="100" y2="0" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#0D47A1"/>
+            <stop offset="100%" stopColor="#1976D2"/>
+          </linearGradient>
+          <filter id="fglow">
+            <feGaussianBlur stdDeviation="2.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        {/* F bracket — vertical bar */}
+        <rect x="14" y="12" width="14" height="76" rx="4" fill="url(#fg2)"/>
+        {/* F top horizontal */}
+        <rect x="14" y="12" width="52" height="14" rx="4" fill="url(#fg1)"/>
+        {/* F mid horizontal */}
+        <rect x="14" y="44" width="36" height="12" rx="4" fill="url(#fg1)"/>
+        {/* Trending-up arrow line: low-left to high-right */}
+        <polyline
+          points="30,72 48,52 62,62 82,28"
+          stroke="url(#fg1)" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"
+          fill="none" filter="url(#fglow)"
+        />
+        {/* Arrowhead */}
+        <polygon points="82,28 68,26 80,40" fill="url(#fg1)" filter="url(#fglow)"/>
       </svg>
+
+      {/* Wordmark — only when showText=true (sidebar/splash) */}
+      {showText && (
+        <span style={{
+          fontSize: s * 0.52,
+          fontWeight: 800,
+          letterSpacing: '-0.02em',
+          lineHeight: 1,
+          color: '#f1f5f9',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          whiteSpace: 'nowrap',
+          userSelect: 'none',
+        }}>
+          Fin<span style={{ color: '#42A5F5' }}>Station</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -98,22 +122,13 @@ function SplashScreen({ visible, fadeOut }) {
         pointerEvents:'none',
       }}/>
 
-      <div className="sp-logo" style={{ marginBottom:24, textAlign:'center' }}>
-        <LogoMark size={76} />
-      </div>
-
-      <div className="sp-name" style={{
-        fontSize: 38, fontWeight: 800, letterSpacing: '-0.8px',
-        background: 'linear-gradient(90deg, #818cf8, #a78bfa, #c4b5fd)',
-        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-        backgroundClip: 'text', lineHeight: 1, marginBottom: 10,
-      }}>
-        FinStation
+      <div className="sp-logo" style={{ marginBottom:28, textAlign:'center' }}>
+        <LogoMark size={72} showText={true} />
       </div>
 
       <div className="sp-tag" style={{
-        fontSize: 13, fontWeight: 500, color: '#475569',
-        letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 40,
+        fontSize: 12, fontWeight: 500, color: '#475569',
+        letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: 40,
       }}>
         India · AI Equity Intelligence
       </div>
@@ -151,8 +166,8 @@ export default function App() {
   const [splashFadeOut, setSplashFadeOut] = useState(false);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setSplashFadeOut(true),  2500);
-    const t2 = setTimeout(() => setSplashVisible(false), 3100);
+    const t1 = setTimeout(() => setSplashFadeOut(true),  1800);
+    const t2 = setTimeout(() => setSplashVisible(false), 2400);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
@@ -267,21 +282,8 @@ export default function App() {
         >
           {/* Logo header */}
           <div style={{ padding: '20px 16px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-              <LogoMark size={38} />
-              <div>
-                <div style={{
-                  fontSize: 16, fontWeight: 800, letterSpacing: '-0.3px',
-                  background: 'linear-gradient(90deg, #e2e8f0, #a5b4fc)',
-                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text', lineHeight: 1.1,
-                }}>
-                  FinStation
-                </div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: '#6366f1', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
-                  India
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <LogoMark size={34} showText={true} />
             </div>
 
             {/* Live market pulse */}
