@@ -145,90 +145,179 @@ export async function fetchScreenerData(symbol) {
   }
 }
 
+// Fetch comprehensive stock data from IndianAPI
+export async function fetchIndianAPIStock(ticker, companyName) {
+  try {
+    // Strip exchange suffix; clean common company name suffixes for better match
+    const name = (companyName || ticker.replace(/\.(NS|BO)$/i, ''))
+      .replace(/\s+(limited|ltd\.?|industries|corporation|corp\.?)\s*$/i, '')
+      .trim();
+    const res = await fetch(
+      `${API_BASE}/api/indianapi/stock?name=${encodeURIComponent(name)}`,
+      { signal: AbortSignal.timeout(12000) },
+    );
+    const json = await res.json();
+    if (!json?.success || !json.data) return null;
+    const d = json.data;
+
+    // Normalise the IndianAPI response into a flat object our code understands
+    const km = d.keyMetrics || {};
+    const fin = d.financials || {};
+    const nsePrice = d.currentPrice?.NSE || d.currentPrice?.BSE || null;
+    const pctChange = parseFloat(d.percentChange) || null;
+
+    return {
+      // Price
+      price:         nsePrice ? parseFloat(String(nsePrice).replace(/,/g, '')) : null,
+      change:        pctChange,
+      volume:        d.volume ? parseInt(String(d.volume).replace(/,/g, '')) : null,
+      open:          d.open   ? parseFloat(String(d.open).replace(/,/g, ''))  : null,
+      high52w:       d.yearHigh ? parseFloat(String(d.yearHigh).replace(/,/g, '')) : null,
+      low52w:        d.yearLow  ? parseFloat(String(d.yearLow).replace(/,/g, ''))  : null,
+      dayHigh:       d.intradayHigh ? parseFloat(String(d.intradayHigh).replace(/,/g, '')) : null,
+      dayLow:        d.intradayLow  ? parseFloat(String(d.intradayLow).replace(/,/g, ''))  : null,
+      prevClose:     d.previousClose ? parseFloat(String(d.previousClose).replace(/,/g, '')) : null,
+      // Fundamentals from keyMetrics
+      pe:            km.pe    != null ? parseFloat(km.pe)    : null,
+      pb:            km.pb    != null ? parseFloat(km.pb)    : null,
+      eps:           km.eps   != null ? parseFloat(km.eps)   : null,
+      roe:           km.roe   != null ? parseFloat(km.roe)   : null,
+      roce:          km.roce  != null ? parseFloat(km.roce)  : null,
+      dividendYield: km.dividendYield != null ? parseFloat(km.dividendYield) : null,
+      bookValue:     km.bookValue     != null ? parseFloat(km.bookValue)     : null,
+      marketCapCr:   km.marketCap
+        ? Math.round(parseFloat(String(km.marketCap).replace(/,/g, '')) / 10000000)
+        : null,
+      // Financials
+      revenueCr:   fin.revenue   ? Math.round(parseFloat(String(fin.revenue).replace(/,/g, ''))   / 10000000) : null,
+      netProfitCr: fin.netProfit ? Math.round(parseFloat(String(fin.netProfit).replace(/,/g, '')) / 10000000) : null,
+      opmPercent:  fin.operatingMargin != null ? parseFloat(fin.operatingMargin) : null,
+      // Company info
+      companyProfile: d.companyProfile || null,
+      industry:       d.industry       || null,
+      // Analyst data
+      analystRating:  d.overallRating  || null,
+      analystReco:    d.analystRecommendation || null,
+      shortTermTrend: d.shortTermTrend || null,
+      longTermTrend:  d.longTermTrend  || null,
+    };
+  } catch (e) {
+    console.warn('fetchIndianAPIStock error:', e.message);
+    return null;
+  }
+}
+
 export async function fetchStockDetail(ticker) {
-  // Fetch all three sources in parallel
-  const [quotes, fundamentals, screener] = await Promise.all([
+  // Fetch all four sources in parallel
+  const [quotes, fundamentals, screener, indianAPI] = await Promise.all([
     fetchQuote(ticker),
     fetchFundamentals(ticker),
     fetchScreenerData(ticker),
+    fetchIndianAPIStock(ticker, null),
   ]);
 
   const q = quotes?.[0] || null;
+  const ia = indianAPI; // IndianAPI data (may be null)
 
-  // If Yahoo completely failed but Screener has data, build partial result
-  const hasYahoo = q && q.regularMarketPrice > 0;
+  // If all sources failed, return null
+  const hasYahoo    = q && q.regularMarketPrice > 0;
   const hasScreener = screener && (screener.revenueCr != null || screener.pe != null);
+  const hasIndian   = ia && (ia.price != null || ia.pe != null);
 
-  if (!hasYahoo && !hasScreener) return null;
+  if (!hasYahoo && !hasScreener && !hasIndian) return null;
 
-  // ── Price data (Yahoo primary) ──────────────────────────────────────────
-  const price       = q?.regularMarketPrice || 0;
+  // ── Price — Yahoo > IndianAPI (NSE) ────────────────────────────────────
+  const price = q?.regularMarketPrice || ia?.price || 0;
+
+  // ── Market Cap — Yahoo > Screener > IndianAPI ───────────────────────────
   const marketCapCr = q?.marketCap
     ? Math.round(q.marketCap / 10000000)
-    : (screener?.marketCapCr || 0);
+    : (screener?.marketCapCr || ia?.marketCapCr || 0);
 
-  // ── Earnings Per Share — Screener TTM > Yahoo ──────────────────────────
+  // ── EPS — Screener TTM > IndianAPI > Yahoo ─────────────────────────────
   const eps = screener?.eps != null
     ? Math.round(screener.eps * 100) / 100
-    : (q?.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A');
+    : ia?.eps != null
+      ? Math.round(ia.eps * 100) / 100
+      : (q?.epsTrailingTwelveMonths ? Math.round(q.epsTrailingTwelveMonths * 100) / 100 : 'N/A');
 
-  // ── P/E — Screener > Yahoo > calculated from price/eps ─────────────────
+  // ── P/E — Screener > IndianAPI > Yahoo (avoid calculated from wrong EPS) ─
   let pe = screener?.pe != null
     ? Math.round(screener.pe * 10) / 10
-    : (q?.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A');
-  if (pe === 'N/A' && price > 0 && eps !== 'N/A' && eps > 0) {
-    pe = Math.round((price / eps) * 10) / 10; // calculated
+    : ia?.pe != null
+      ? Math.round(ia.pe * 10) / 10
+      : (q?.trailingPE ? Math.round(q.trailingPE * 10) / 10 : 'N/A');
+  // Only calculate from price/EPS if no authoritative source gave a P/E
+  if (pe === 'N/A' && price > 0 && eps !== 'N/A' && eps > 0 && screener?.pe == null && ia?.pe == null) {
+    pe = Math.round((price / eps) * 10) / 10;
   }
 
-  // ── P/B — Yahoo > calculated from price/bookValue ──────────────────────
+  // ── P/B — Yahoo > IndianAPI > calculated ───────────────────────────────
   let pb = q?.priceToBook ? Math.round(q.priceToBook * 100) / 100 : 'N/A';
-  if (pb === 'N/A' && price > 0 && screener?.bookValue > 0 && marketCapCr > 0) {
-    // bookValue from Screener is per share (₹)
-    pb = Math.round((price / screener.bookValue) * 100) / 100;
+  if (pb === 'N/A' && ia?.pb != null) pb = Math.round(ia.pb * 100) / 100;
+  if (pb === 'N/A' && price > 0 && (screener?.bookValue || ia?.bookValue) > 0) {
+    pb = Math.round((price / (screener?.bookValue || ia?.bookValue)) * 100) / 100;
   }
 
-  // ── Revenue / Net Profit ────────────────────────────────────────────────
-  const revenue   = screener?.revenueCr   != null ? Math.round(screener.revenueCr * 100)   : (fundamentals?.revenue || 0);
-  const netProfit = screener?.netProfitCr != null ? Math.round(screener.netProfitCr * 100) : (fundamentals?.netProfit || 0);
+  // ── Revenue / Net Profit — Screener > IndianAPI > Yahoo ────────────────
+  const revenue   = screener?.revenueCr   != null ? Math.round(screener.revenueCr * 100)
+    : ia?.revenueCr   != null ? Math.round(ia.revenueCr * 100)
+    : (fundamentals?.revenue || 0);
+  const netProfit = screener?.netProfitCr != null ? Math.round(screener.netProfitCr * 100)
+    : ia?.netProfitCr != null ? Math.round(ia.netProfitCr * 100)
+    : (fundamentals?.netProfit || 0);
 
-  // ── Margin / ROE / ROCE ─────────────────────────────────────────────────
-  const ebitdaMargin = screener?.opmPercent != null ? screener.opmPercent : (fundamentals?.ebitdaMargin ?? 'N/A');
-  const roe  = screener?.roe  != null ? screener.roe  : (fundamentals?.roe ?? 'N/A');
-  const roce = screener?.roce != null ? screener.roce : 'N/A';
+  // ── Margin / ROE / ROCE — Screener > IndianAPI > Yahoo ─────────────────
+  const ebitdaMargin = screener?.opmPercent != null ? screener.opmPercent
+    : ia?.opmPercent != null ? ia.opmPercent
+    : (fundamentals?.ebitdaMargin ?? 'N/A');
+  const roe  = screener?.roe  != null ? screener.roe
+    : ia?.roe  != null ? ia.roe
+    : (fundamentals?.roe ?? 'N/A');
+  const roce = screener?.roce != null ? screener.roce
+    : ia?.roce != null ? ia.roce
+    : 'N/A';
 
-  // Net margin calculated when possible
   const netMargin = (revenue > 0 && netProfit > 0)
     ? Math.round((netProfit / revenue) * 1000) / 10
     : 'N/A';
 
-  // ── Debt / Equity — Screener balance sheet > Yahoo ─────────────────────
-  const debtEquity   = screener?.debtEquity    != null ? screener.debtEquity    : (fundamentals?.debtEquity    ?? 'N/A');
+  // ── Debt/Equity ─────────────────────────────────────────────────────────
+  const debtEquity   = screener?.debtEquity != null ? screener.debtEquity : (fundamentals?.debtEquity ?? 'N/A');
   const currentRatio = fundamentals?.currentRatio ?? 'N/A';
 
-  // ── Dividend Yield — Screener > Yahoo ──────────────────────────────────
-  const dividendYield = screener?.dividendYield != null
-    ? screener.dividendYield
+  // ── Dividend Yield — Screener > IndianAPI > Yahoo ──────────────────────
+  const dividendYield = screener?.dividendYield != null ? screener.dividendYield
+    : ia?.dividendYield != null ? ia.dividendYield
     : (q?.dividendYield ? Math.round(q.dividendYield * 10000) / 100 : 0);
 
+  // ── Book Value — Screener > IndianAPI ──────────────────────────────────
+  const bookValue = screener?.bookValue ?? ia?.bookValue ?? 'N/A';
+
   return {
-    name:        q?.longName || q?.shortName || ticker.replace('.NS', ''),
+    name:        q?.longName || q?.shortName || ia?.companyProfile?.split('.')[0] || ticker.replace('.NS', ''),
     ticker:      q?.symbol   || ticker,
-    sector:      q?.industry || 'N/A',
+    sector:      q?.industry || ia?.industry || 'N/A',
     exchange:    q?.exchange === 'NSI' ? 'NSE' : (q?.exchange || 'NSE'),
-    description: `${q?.longName || q?.shortName || ticker} listed on NSE.`,
+    description: ia?.companyProfile || `${q?.longName || q?.shortName || ticker} listed on NSE.`,
     price,
     marketCap:   marketCapCr ? marketCapCr.toString() : 'N/A',
     marketCapCr,
-    high52w:     q?.fiftyTwoWeekHigh  || 0,
-    low52w:      q?.fiftyTwoWeekLow   || 0,
+    high52w:     q?.fiftyTwoWeekHigh  || ia?.high52w || 0,
+    low52w:      q?.fiftyTwoWeekLow   || ia?.low52w  || 0,
     pe, pb, eps,
     evEbitda:    fundamentals?.evEbitda ?? 'N/A',
     dividendYield,
     beta:        q?.beta ? Math.round(q.beta * 100) / 100 : 'N/A',
     revenue, netProfit, ebitdaMargin, roe, roce, netMargin,
     debtEquity, currentRatio,
-    bookValue:   screener?.bookValue ?? 'N/A',
-    dayHigh:     q?.regularMarketDayHigh         || 0,
+    bookValue,
+    // Analyst data from IndianAPI
+    analystRating:  ia?.analystRating  || null,
+    analystReco:    ia?.analystReco    || null,
+    shortTermTrend: ia?.shortTermTrend || null,
+    longTermTrend:  ia?.longTermTrend  || null,
+    dayHigh:     q?.regularMarketDayHigh || ia?.dayHigh || 0,
     dayLow:      q?.regularMarketDayLow          || 0,
     open:        q?.regularMarketOpen            || 0,
     prevClose:   q?.regularMarketPreviousClose   || 0,

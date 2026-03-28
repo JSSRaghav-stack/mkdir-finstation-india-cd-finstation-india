@@ -24,6 +24,24 @@ const MIME_TYPES = {
 const FMP_API_KEY = process.env.FMP_API_KEY || '4csJHhT1Qn74tSp6IZjrMGGAyk8jU3Qs';
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'd6u2f89r01qp1k9auq1gd6u2f89r01qp1k9auq20';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const INDIAN_API_KEY = process.env.INDIAN_API_KEY || 'sk-live-ykuBl3tx7N0UBnKIMzjcwWQdfoZZETSz0xS5Tkha';
+const INDIAN_API_BASE = 'https://stock.indianapi.in';
+
+// ─── IndianAPI helpers ─────────────────────────────────────────────────────
+const indianApiCache = new Map();
+const INDIAN_API_TTL = 90 * 1000; // 90s cache (500 req/month limit)
+
+async function fetchIndianAPI(endpoint, params = {}) {
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  const url = `${INDIAN_API_BASE}${endpoint}${qs ? '?' + qs : ''}`;
+  const res = await httpsGet(url, {
+    'x-api-key': INDIAN_API_KEY,
+    'Accept': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  }, 12000);
+  if (res.status !== 200) throw new Error(`IndianAPI ${res.status}`);
+  return JSON.parse(res.data);
+}
 
 // ─── Gift Nifty live data ──────────────────────────────────────────────────
 
@@ -1136,6 +1154,49 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ success: true, news: news.slice(0, 20) }));
 
     // ─── Anthropic research endpoint ─────────────────────────────────────
+
+    } else if (pathname === '/api/indianapi/stock') {
+      const { name } = query;
+      if (!name) throw new Error('name param required');
+      const cacheKey = `iapi_${name.toLowerCase().trim()}`;
+      const cached = indianApiCache.get(cacheKey);
+      if (cached && (Date.now() - cached.t) < INDIAN_API_TTL) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: cached.d, cached: true }));
+        return;
+      }
+      try {
+        const data = await fetchIndianAPI('/stock', { name });
+        indianApiCache.set(cacheKey, { d: data, t: Date.now() });
+        // Evict old entries
+        if (indianApiCache.size > 100) {
+          const oldest = [...indianApiCache.entries()].sort((a, b) => a[1].t - b[1].t)[0];
+          indianApiCache.delete(oldest[0]);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message, data: null }));
+      }
+
+    } else if (pathname === '/api/indianapi/trending') {
+      const cacheKey = 'iapi_trending';
+      const cached = indianApiCache.get(cacheKey);
+      if (cached && (Date.now() - cached.t) < 60000) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: cached.d, cached: true }));
+        return;
+      }
+      try {
+        const data = await fetchIndianAPI('/trending');
+        indianApiCache.set(cacheKey, { d: data, t: Date.now() });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message, data: null }));
+      }
 
     } else if (pathname === '/api/gift-nifty') {
       const data = await fetchGiftNiftyData();

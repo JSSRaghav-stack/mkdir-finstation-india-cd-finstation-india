@@ -201,6 +201,7 @@ export default function AIResearch() {
   const [report, setReport] = useState('');
   const [reportMeta, setReportMeta] = useState(null);
   const [error, setError] = useState('');
+  const [mobileView, setMobileView] = useState('config'); // 'config' | 'report'
 
   const msgCycleRef = React.useRef(null);
 
@@ -267,6 +268,7 @@ Use ₹ for currency. Be specific with numbers. Sound like a real sell-side rese
         stopLoadingMessages();
         setReport(text);
         setReportMeta({ stock: stockName, type: reportType, stance, date: reportDate, isLive: true });
+        setMobileView('report');
         setLoading(false);
         return;
       }
@@ -305,13 +307,8 @@ Use ₹ for currency. Be specific with numbers. Sound like a real sell-side rese
       // AI-generated preview report (no API key needed)
       const demo = getDemoReport(stockName, reportType, stance, stockSector);
       setReport(demo);
-      setReportMeta({
-        stock: stockName,
-        type: reportType,
-        stance,
-        date: reportDate,
-        isDemo: true,
-      });
+      setReportMeta({ stock: stockName, type: reportType, stance, date: reportDate, isDemo: true });
+      setMobileView('report');
     }
     setLoading(false);
   };
@@ -326,303 +323,289 @@ Use ₹ for currency. Be specific with numbers. Sound like a real sell-side rese
 
   const stanceColor = STANCE_COLORS[stance];
 
-  return (
-    <div className="h-full flex gap-0 overflow-hidden" style={{ background: '#0a0a0f' }}>
-      {/* Left panel — controls */}
-      <div
-        className="flex-shrink-0 flex flex-col gap-4 overflow-y-auto px-5 py-5"
-        style={{ width: 300, background: '#0d0d15', borderRight: '1px solid #1e1e2e' }}
-      >
-        <div>
-          <h2 className="text-sm font-bold mb-1" style={{ color: '#f1f5f9' }}>AI Research Report</h2>
-          <p className="text-xs leading-relaxed" style={{ color: '#475569' }}>
-            Generate professional equity research notes powered by Claude AI.
-          </p>
+  // ── CONFIG PANEL (shared between mobile & desktop) ───────────────────────
+  const ConfigPanel = (
+    <div className="flex flex-col gap-5 px-4 py-5 overflow-y-auto h-full" style={{ background: '#0d0d15' }}>
+
+      {/* Header */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-lg">🤖</span>
+          <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>AI Research Report</h2>
         </div>
-
-        {/* Stock selector */}
-        <div>
-          <label className="block text-xs font-medium mb-2" style={{ color: '#94a3b8' }}>
-            Select Stock
-          </label>
-          <select
-            value={selectedStock}
-            onChange={(e) => setSelectedStock(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
-            style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0' }}
-          >
-            <option value="">— Choose a stock —</option>
-            {STOCK_LIST.map((s) => (
-              <option key={s.ticker} value={s.ticker}>
-                {s.name} ({s.ticker.replace('.NS', '')})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Report type */}
-        <div>
-          <label className="block text-xs font-medium mb-2" style={{ color: '#94a3b8' }}>
-            Report Type
-          </label>
-          <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid #1e1e2e' }}>
-            {REPORT_TYPES.map((rt) => (
-              <button
-                key={rt}
-                onClick={() => setReportType(rt)}
-                className="flex-1 py-2 text-xs font-medium transition-all"
-                style={{
-                  background: reportType === rt ? '#3b82f6' : '#12121a',
-                  color: reportType === rt ? '#fff' : '#64748b',
-                }}
-              >
-                {rt}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Stance */}
-        <div>
-          <label className="block text-xs font-medium mb-2" style={{ color: '#94a3b8' }}>
-            Analyst Stance
-          </label>
-          <div className="flex flex-col gap-2">
-            {STANCES.map((s) => {
-              const active = stance === s;
-              const color = STANCE_COLORS[s];
-              return (
-                <button
-                  key={s}
-                  onClick={() => setStance(s)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left transition-all"
-                  style={{
-                    background: active ? `${color}18` : '#12121a',
-                    border: `1px solid ${active ? color + '40' : '#1e1e2e'}`,
-                    color: active ? color : '#64748b',
-                  }}
-                >
-                  <span>{s === 'Neutral' ? '⚖️' : s === 'Bull Case' ? '🐂' : '🐻'}</span>
-                  <span className="font-medium">{s}</span>
-                  {active && <span className="ml-auto text-xs" style={{ color }}>✓</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* API Key */}
-        <div>
-          <button
-            onClick={() => setShowApiInput(!showApiInput)}
-            className="text-xs mb-2 flex items-center gap-1"
-            style={{ color: '#475569' }}
-          >
-            🔑 {showApiInput ? 'Hide' : 'Set'} API Key
-            <span style={{ color: apiKey ? '#22c55e' : '#ef4444' }}>
-              {apiKey ? '●' : '○'}
-            </span>
-          </button>
-          {showApiInput && (
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-ant-api03-..."
-              className="w-full px-3 py-2 rounded-lg text-xs outline-none"
-              style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#e2e8f0' }}
-            />
-          )}
-          <p className="text-xs mt-1" style={{ color: '#334155' }}>
-            Leave blank for demo report
-          </p>
-        </div>
-
-        {error && (
-          <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
-            {error}
-          </div>
-        )}
-
-        {/* Generate button */}
-        <button
-          onClick={generateReport}
-          disabled={loading}
-          className="w-full py-3 rounded-xl font-semibold text-sm transition-all"
-          style={{
-            background: loading ? '#1e1e2e' : 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-            color: loading ? '#475569' : '#fff',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            boxShadow: loading ? 'none' : '0 0 20px rgba(59,130,246,0.25)',
-          }}
-        >
-          {loading ? '⏳ Generating...' : '✨ Generate Research Report'}
-        </button>
-
-        {/* Disclaimer */}
-        <p className="text-xs leading-relaxed" style={{ color: '#1e3a5f' }}>
-          Reports are AI-generated and for informational purposes only. Not investment advice.
+        <p className="text-xs leading-relaxed" style={{ color: '#475569' }}>
+          Professional equity research notes powered by Claude AI.
         </p>
       </div>
 
-      {/* Right panel — report */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {loading && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6">
-            {/* Spinner */}
-            <div className="relative">
-              <div
-                className="w-16 h-16 rounded-full"
+      {/* Stock selector */}
+      <div>
+        <label className="block text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
+          Select Stock
+        </label>
+        <select
+          value={selectedStock}
+          onChange={(e) => setSelectedStock(e.target.value)}
+          className="w-full px-3 rounded-xl text-sm outline-none appearance-none"
+          style={{
+            background: '#12121a', border: '1px solid #1e2a45',
+            color: selectedStock ? '#e2e8f0' : '#475569',
+            height: 48, cursor: 'pointer',
+          }}
+        >
+          <option value="">— Choose a stock —</option>
+          {STOCK_LIST.map((s) => (
+            <option key={s.ticker} value={s.ticker}>
+              {s.name} ({s.ticker.replace('.NS', '')})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Report Type */}
+      <div>
+        <label className="block text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
+          Report Type
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {REPORT_TYPES.map((rt) => (
+            <button
+              key={rt}
+              onClick={() => setReportType(rt)}
+              style={{
+                height: 44, borderRadius: 10, fontSize: 13, fontWeight: 600,
+                background: reportType === rt ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : '#12121a',
+                color: reportType === rt ? '#fff' : '#64748b',
+                border: `1px solid ${reportType === rt ? '#3b82f6' : '#1e2a45'}`,
+                transition: 'all 0.15s',
+              }}
+            >{rt}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Analyst Stance */}
+      <div>
+        <label className="block text-xs font-semibold mb-2 uppercase tracking-wide" style={{ color: '#64748b' }}>
+          Analyst Stance
+        </label>
+        <div className="flex flex-col gap-2">
+          {STANCES.map((s) => {
+            const active = stance === s;
+            const c = STANCE_COLORS[s];
+            return (
+              <button
+                key={s}
+                onClick={() => setStance(s)}
                 style={{
-                  border: '3px solid #1e1e2e',
-                  borderTop: '3px solid #3b82f6',
-                  animation: 'spin 1s linear infinite',
+                  height: 48, borderRadius: 12, fontSize: 14, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 16, paddingRight: 16,
+                  background: active ? `${c}15` : '#12121a',
+                  color: active ? c : '#64748b',
+                  border: `1px solid ${active ? c + '50' : '#1e2a45'}`,
+                  transition: 'all 0.15s',
                 }}
-              />
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-medium mb-1" style={{ color: '#60a5fa' }}>
-                {loadingMsg}
-              </div>
-              <div className="text-xs" style={{ color: '#334155' }}>
-                Powered by Claude AI • FinStation India
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {['Fundamentals', 'Valuation', 'Sector', 'News'].map((tag, i) => (
-                <span
-                  key={tag}
-                  className="text-xs px-2 py-1 rounded"
-                  style={{
-                    background: '#12121a',
-                    border: '1px solid #1e1e2e',
-                    color: '#475569',
-                    animation: `pulse-slow ${1 + i * 0.3}s ease-in-out infinite`,
-                  }}
-                >
-                  {tag}
+              >
+                <span style={{ fontSize: 18 }}>
+                  {s === 'Neutral' ? '⚖️' : s === 'Bull Case' ? '🐂' : '🐻'}
                 </span>
-              ))}
+                <span>{s}</span>
+                {active && <span style={{ marginLeft: 'auto', fontSize: 16 }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* API Key (collapsed) */}
+      <div>
+        <button
+          onClick={() => setShowApiInput(!showApiInput)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', marginBottom: 6 }}
+        >
+          🔑 {showApiInput ? 'Hide' : 'Add'} Anthropic API Key
+          <span style={{ color: apiKey ? '#22c55e' : '#ef4444', fontSize: 10 }}>{apiKey ? '●' : '○'}</span>
+        </button>
+        {showApiInput && (
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-ant-api03-..."
+            style={{
+              width: '100%', height: 44, borderRadius: 10, paddingLeft: 12, paddingRight: 12,
+              background: '#12121a', border: '1px solid #1e2a45', color: '#e2e8f0', fontSize: 12, outline: 'none',
+            }}
+          />
+        )}
+        <p style={{ fontSize: 11, color: '#1e3a5f', marginTop: 4 }}>Leave blank — demo report works without a key</p>
+      </div>
+
+      {error && (
+        <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)', fontSize: 13 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Generate Button */}
+      <button
+        onClick={generateReport}
+        disabled={loading}
+        style={{
+          height: 52, borderRadius: 14, fontWeight: 700, fontSize: 15,
+          background: loading ? '#1a1a2e' : 'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+          color: loading ? '#475569' : '#fff',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          boxShadow: loading ? 'none' : '0 4px 24px rgba(99,102,241,0.3)',
+          transition: 'all 0.2s',
+          border: 'none', width: '100%',
+        }}
+      >
+        {loading ? '⏳ Generating report...' : '✨ Generate Research Report'}
+      </button>
+
+      {/* If report exists on mobile, show "View Report" shortcut */}
+      {report && !loading && (
+        <button
+          onClick={() => setMobileView('report')}
+          className="md:hidden"
+          style={{
+            height: 44, borderRadius: 12, fontWeight: 600, fontSize: 14,
+            background: `${stanceColor}18`, color: stanceColor,
+            border: `1px solid ${stanceColor}40`, cursor: 'pointer', width: '100%',
+          }}
+        >
+          View Last Report →
+        </button>
+      )}
+
+      <p style={{ fontSize: 11, color: '#1e2a45', lineHeight: 1.5 }}>
+        AI-generated reports are for informational purposes only. Not investment advice.
+      </p>
+    </div>
+  );
+
+  // ── REPORT PANEL ───────────────────────────────────────────────────────────
+  const ReportPanel = (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: '#0a0a0f' }}>
+      {loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%',
+            border: '3px solid #1e1e2e', borderTop: '3px solid #6366f1',
+            animation: 'spin 0.9s linear infinite',
+          }} />
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          <div className="text-center">
+            <div style={{ color: '#818cf8', fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{loadingMsg}</div>
+            <div style={{ color: '#334155', fontSize: 12 }}>Powered by Claude AI · FinStation India</div>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {['Fundamentals','Valuation','Sector','Catalysts','Risks'].map((tag, i) => (
+              <span key={tag} style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 11,
+                background: '#12121a', border: '1px solid #1e1e2e', color: '#475569',
+                animation: `pulse ${1.2 + i * 0.25}s ease-in-out infinite`,
+              }}>{tag}</span>
+            ))}
+          </div>
+          <style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
+        </div>
+      ) : !report ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 text-center">
+          <div style={{ fontSize: 56 }}>🤖</div>
+          <div>
+            <div style={{ color: '#94a3b8', fontWeight: 700, fontSize: 18, marginBottom: 8 }}>AI-Powered Equity Research</div>
+            <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.6, maxWidth: 320 }}>
+              Select a stock and your preferred stance, then generate a professional research report in seconds.
             </div>
           </div>
-        )}
-
-        {!loading && !report && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4">
-            <div className="text-6xl">🤖</div>
-            <div className="text-xl font-semibold" style={{ color: '#94a3b8' }}>
-              AI-Powered Equity Research
+          <div className="grid grid-cols-2 gap-3 w-full" style={{ maxWidth: 340 }}>
+            {[['📊','Financial Analysis'],['🎯','Price Targets'],['⚡','Key Catalysts'],['⚠️','Risk Assessment']].map(([icon, text]) => (
+              <div key={text} style={{
+                padding: '12px 14px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 8,
+                background: '#12121a', border: '1px solid #1e1e2e', color: '#64748b', fontSize: 13,
+              }}>
+                <span>{icon}</span><span>{text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Sticky report header */}
+          <div style={{
+            borderBottom: '1px solid #1e1e2e', background: '#0d0d15',
+            padding: '10px 16px', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          }}>
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Back button — mobile only */}
+              <button
+                className="md:hidden flex-shrink-0"
+                onClick={() => setMobileView('config')}
+                style={{ color: '#64748b', fontSize: 20, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+              >←</button>
+              <span style={{
+                padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                background: `${stanceColor}18`, color: stanceColor, border: `1px solid ${stanceColor}40`, flexShrink: 0,
+              }}>{reportMeta?.stance}</span>
+              <span style={{ color: '#475569', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {reportMeta?.stock} · {reportMeta?.type}
+              </span>
+              {reportMeta?.isLive && <span style={{ color: '#22c55e', fontSize: 11, flexShrink: 0 }}>● Live</span>}
+              {reportMeta?.isDemo && <span style={{ color: '#a78bfa', fontSize: 11, flexShrink: 0 }}>Preview</span>}
             </div>
-            <div className="text-sm text-center" style={{ color: '#475569', maxWidth: 400 }}>
-              Select a stock and configure your report preferences on the left, then click Generate to receive a professional equity research note.
-            </div>
-            <div
-              className="mt-2 grid grid-cols-2 gap-3 text-xs"
-              style={{ maxWidth: 400 }}
-            >
-              {[
-                { icon: '📊', text: 'Financial Analysis' },
-                { icon: '🎯', text: 'Price Targets' },
-                { icon: '⚡', text: 'Key Catalysts' },
-                { icon: '⚠️', text: 'Risk Assessment' },
-              ].map((item) => (
-                <div
-                  key={item.text}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                  style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#64748b' }}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.text}</span>
-                </div>
-              ))}
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={() => navigator.clipboard.writeText(report)}
+                style={{
+                  padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500,
+                  background: '#12121a', border: '1px solid #1e1e2e', color: '#94a3b8', cursor: 'pointer',
+                }}
+              >Copy</button>
             </div>
           </div>
-        )}
 
-        {!loading && report && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Report toolbar */}
-            <div
-              className="flex items-center justify-between px-6 py-3 flex-shrink-0 no-print"
-              style={{ borderBottom: '1px solid #1e1e2e', background: '#0d0d15' }}
-            >
-              <div className="flex items-center gap-3 text-xs">
-                <span
-                  className="px-2 py-1 rounded font-medium"
-                  style={{ background: `${stanceColor}18`, color: stanceColor, border: `1px solid ${stanceColor}30` }}
-                >
-                  {stance}
-                </span>
-                <span style={{ color: '#475569' }}>{reportMeta?.type}</span>
-                <span style={{ color: '#475569' }}>•</span>
-                <span style={{ color: '#475569' }}>{reportMeta?.stock}</span>
-                {reportMeta?.isLive && (
-                  <>
-                    <span style={{ color: '#475569' }}>•</span>
-                    <span style={{ color: '#22c55e' }}>● Live AI Report</span>
-                  </>
-                )}
-                {reportMeta?.isDemo && (
-                  <>
-                    <span style={{ color: '#475569' }}>•</span>
-                    <span style={{ color: '#a78bfa' }}>AI Preview (set API key for personalized)</span>
-                  </>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCopy}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#94a3b8' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.color = '#60a5fa'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1e1e2e'; e.currentTarget.style.color = '#94a3b8'; }}
-                >
-                  📋 Copy Report
-                </button>
-                <button
-                  onClick={handlePrint}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={{ background: '#12121a', border: '1px solid #1e1e2e', color: '#94a3b8' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#22c55e'; e.currentTarget.style.color = '#4ade80'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1e1e2e'; e.currentTarget.style.color = '#94a3b8'; }}
-                >
-                  🖨️ Download PDF
-                </button>
-              </div>
-            </div>
-
-            {/* Report content */}
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <div style={{ maxWidth: 760 }}>
-                {/* Header */}
-                <div className="mb-6 pb-4" style={{ borderBottom: '2px solid #1e2a4a' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div
-                      className="text-xs font-bold tracking-widest uppercase"
-                      style={{ color: '#3b82f6' }}
-                    >
-                      FinStation India — Equity Research
-                    </div>
-                    <div className="text-xs" style={{ color: '#475569' }}>{reportMeta?.date}</div>
-                  </div>
-                  <div className="text-xs" style={{ color: '#334155' }}>
-                    For informational purposes only • Not investment advice
-                  </div>
+          {/* Report body */}
+          <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5">
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #1e2a4a' }}>
+                <div style={{ color: '#6366f1', fontSize: 11, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
+                  FinStation India — Equity Research
                 </div>
-
-                {/* Markdown report */}
-                <MarkdownRenderer text={report} />
-
-                {/* Footer */}
-                <div className="mt-8 pt-4 text-xs" style={{ borderTop: '1px solid #1e1e2e', color: '#334155' }}>
-                  Generated by FinStation AI | {reportMeta?.date} | Powered by Claude AI | For informational purposes only. This report does not constitute investment advice.
+                <div style={{ color: '#334155', fontSize: 11 }}>
+                  {reportMeta?.date} · For informational purposes only · Not investment advice
                 </div>
+              </div>
+              <MarkdownRenderer text={report} />
+              <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid #1e1e2e', color: '#334155', fontSize: 11 }}>
+                Generated by FinStation AI · {reportMeta?.date} · Powered by Claude AI
               </div>
             </div>
           </div>
-        )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="h-full overflow-hidden" style={{ background: '#0a0a0f' }}>
+      {/* ── MOBILE: single-column step view ── */}
+      <div className="md:hidden h-full">
+        {(mobileView === 'config' && !loading) ? ConfigPanel : ReportPanel}
+      </div>
+
+      {/* ── DESKTOP: side-by-side ── */}
+      <div className="hidden md:flex h-full overflow-hidden">
+        <div className="flex-shrink-0 overflow-hidden" style={{ width: 288, borderRight: '1px solid #1e1e2e' }}>
+          {ConfigPanel}
+        </div>
+        <div className="flex-1 overflow-hidden">
+          {ReportPanel}
+        </div>
       </div>
     </div>
   );
 }
+
