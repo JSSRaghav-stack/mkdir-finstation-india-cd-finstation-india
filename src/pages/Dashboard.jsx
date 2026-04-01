@@ -103,11 +103,14 @@ function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, 
   );
 }
 
-function GainersLosersTable({ stocks, type }) {
+function GainersLosersTable({ stocks, type, isLive }) {
   return (
     <div className="rounded-xl" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
       <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid #1e1e2e', borderRadius: '12px 12px 0 0' }}>
-        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '▲ Top Gainers' : '▼ Top Losers'}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{type==='gainers' ? '▲ Top Gainers' : '▼ Top Losers'}</span>
+          {isLive && <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: 9 }}>● LIVE</span>}
+        </div>
         <span className="text-xs px-2 py-0.5 rounded" style={{ background: type==='gainers' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: type==='gainers' ? '#22c55e' : '#ef4444' }}>Nifty 50</span>
       </div>
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', borderRadius: '0 0 12px 12px' }}>
@@ -134,12 +137,15 @@ function GainersLosersTable({ stocks, type }) {
   );
 }
 
-function SectorHeatmap({ sectors }) {
+function SectorHeatmap({ sectors, isLive }) {
   const maxAbs = Math.max(...sectors.map(s => Math.abs(s.change)));
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: '#12121a', border: '1px solid #1e1e2e' }}>
-      <div className="px-4 py-3" style={{ borderBottom: '1px solid #1e1e2e' }}>
-        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Sector Heatmap · Live</span>
+      <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #1e1e2e' }}>
+        <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>Sector Heatmap</span>
+        {isLive
+          ? <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: 9 }}>● LIVE DATA</span>
+          : <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(100,116,139,0.1)', color: '#64748b', fontSize: 9 }}>MOCK</span>}
       </div>
       <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2">
         {sectors.map(sector => {
@@ -252,10 +258,12 @@ export default function Dashboard() {
           }}>{isMarketOpen() ? '● Market Open' : '● Market Closed'}</span>
           {lastRefresh && <span className="text-xs" style={{ color: '#334155' }}>Refreshed {fmtT(lastRefresh)}</span>}
         </div>
-        <span className="text-xs px-2 py-1 rounded" style={{
-          background: isLive ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
-          color: isLive ? '#4ade80' : '#64748b', border: `1px solid ${isLive ? 'rgba(34,197,94,0.2)' : '#1e1e2e'}`,
-        }}>{isLive ? '● Live (10s refresh)' : '● Mock Data'}</span>
+        <span className="text-xs px-2 py-1 rounded font-semibold" style={{
+          background: isLive ? 'rgba(34,197,94,0.12)' : 'rgba(100,116,139,0.1)',
+          color: isLive ? '#4ade80' : '#64748b',
+          border: `1px solid ${isLive ? 'rgba(34,197,94,0.3)' : '#1e1e2e'}`,
+          animation: isLive ? 'live-pulse 2s ease-in-out infinite' : 'none',
+        }}>{isLive ? '● Live Data · 10s refresh' : '● Mock Data'}</span>
       </div>
 
       {/* KPI cards — equal 5-col grid on desktop, horizontal scroll on mobile */}
@@ -309,12 +317,12 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
         {loading ? (<><SkeletonBox w="100%" h={220} className="rounded-xl" /><SkeletonBox w="100%" h={220} className="rounded-xl" /></>) : (
-          <><GainersLosersTable stocks={gainers} type="gainers" /><GainersLosersTable stocks={losers} type="losers" /></>
+          <><GainersLosersTable stocks={gainers} type="gainers" isLive={isLive} /><GainersLosersTable stocks={losers} type="losers" isLive={isLive} /></>
         )}
       </div>
 
       <div className="mb-5">
-        {loading ? <SkeletonBox w="100%" h={130} className="rounded-xl" /> : sectorData.length > 0 ? <SectorHeatmap sectors={sectorData} /> : null}
+        {loading ? <SkeletonBox w="100%" h={130} className="rounded-xl" /> : sectorData.length > 0 ? <SectorHeatmap sectors={sectorData} isLive={isLive} /> : null}
       </div>
 
       <div>
