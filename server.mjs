@@ -126,7 +126,33 @@ let giftNiftyCache = null;
 let giftNiftyCacheTime = 0;
 const GIFT_NIFTY_TTL = 30 * 1000; // 30-second cache
 
-// Source 0: Yahoo Finance — most reliable, uses existing crumb/cookie
+// Source 0: Yahoo Finance v8 CHART API — same pipeline used for Nifty/Sensex charts.
+// This works from Railway (US) because fetchYF() handles crumb/cookie internally.
+// meta.regularMarketPrice is present even when market is closed (last traded price).
+async function fetchGiftNiftyFromYahooChart() {
+  try {
+    const data = await fetchYF(
+      'https://query1.finance.yahoo.com/v8/finance/chart/%5EGIFTNIFTY?range=1d&interval=1m&includePrePost=true'
+    );
+    const meta = data?.chart?.result?.[0]?.meta;
+    const price = meta?.regularMarketPrice ?? meta?.chartPreviousClose;
+    if (price > 5000) {
+      return {
+        value:  Math.round(price * 100) / 100,
+        change: meta.regularMarketChangePercent != null
+          ? Math.round(meta.regularMarketChangePercent * 100) / 100 : 0,
+        points: meta.regularMarketChange != null
+          ? Math.round(meta.regularMarketChange   * 100) / 100 : 0,
+        source: 'Yahoo',
+      };
+    }
+  } catch (e) {
+    console.log('[GiftNifty] Yahoo chart error:', e.message);
+  }
+  return null;
+}
+
+// Source 1: Yahoo Finance v7 quote API (fallback to chart above)
 async function fetchGiftNiftyFromYahooFinance() {
   try {
     const { crumb, cookie } = await getCrumb();
@@ -147,7 +173,7 @@ async function fetchGiftNiftyFromYahooFinance() {
       };
     }
   } catch (e) {
-    console.log('Gift Nifty Yahoo error:', e.message);
+    console.log('[GiftNifty] Yahoo quote error:', e.message);
   }
   return null;
 }
@@ -339,8 +365,8 @@ async function fetchGiftNiftyData() {
     return { ...giftNiftyCache, cached: true };
   }
 
-  // Try all sources: Yahoo → MoneyControl → NSE blob → Google → NSE API
-  const yahooResult = await fetchGiftNiftyFromYahooFinance();
+  // Try all sources: Yahoo Chart (v8) → Yahoo Quote (v7) → MoneyControl → NSE blob → Google → NSE API
+  const yahooResult = await fetchGiftNiftyFromYahooChart() || await fetchGiftNiftyFromYahooFinance();
   if (yahooResult) {
     giftNiftyCache = yahooResult;
     giftNiftyCacheTime = now;
@@ -1902,9 +1928,12 @@ const server = createServer(async (req, res) => {
       }
 
     } else if (pathname === '/api/gift-nifty') {
-      // Primary: MoneyControl direct feed (most reliable, 10s cache)
-      // Fallback: multi-source scraper (Yahoo / NSE blob / Google)
-      let data = await fetchGiftNiftyLiveSnapshot();
+      // Priority order (all tried until one succeeds):
+      // 1. Yahoo Finance v8 chart API  — same proven pipeline as Nifty/Sensex charts
+      // 2. MoneyControl direct futures feed
+      // 3. Full multi-source scraper (Yahoo v7 / NSE blob / Google / NSE API)
+      let data = await fetchGiftNiftyFromYahooChart();
+      if (!data) data = await fetchGiftNiftyLiveSnapshot();
       if (!data) data = await fetchGiftNiftyData();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: !!data, data: data || null }));
