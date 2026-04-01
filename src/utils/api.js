@@ -319,6 +319,10 @@ export async function fetchStockDetail(ticker) {
       // Financials (internal unit: Cr × 100 for legacy compat)
       revenue:    d.revenue    ?? 0, // already in Cr*100 from server
       netProfit:  d.netProfit  ?? 0,
+      // Raw Crore values for DCF/LBO calculations (numeric or null, never 'N/A')
+      revenueCr:   num(d.revenueCr),
+      netProfitCr: num(d.netProfitCr),
+      opmPercent:  num(d.opmPercent),
       // Balance sheet (for DCF net debt)
       totalBorrowings:    num(d.totalBorrowings),
       cashAndEquivalents: num(d.cashAndEquivalents),

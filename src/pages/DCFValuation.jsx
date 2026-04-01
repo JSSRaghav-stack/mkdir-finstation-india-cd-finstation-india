@@ -137,10 +137,11 @@ function buildInputsFromLive(data, stockInfo) {
   const mappedSector = detectSector(rawSector) || stockInfo?.sector;
   const SD = SECTOR_DCF_DEFAULTS[mappedSector] || {};
 
-  // 3. EBITDA margin — prefer actual Screener OPM, then sector default
-  const actualMargin = data.opmPercent ?? data.ebitdaMargin;
-  const ebitdaMargin = (typeof actualMargin === 'number' && actualMargin > 3 && actualMargin < 80)
-    ? Math.round(actualMargin * 10) / 10
+  // 3. EBITDA margin — prefer actual Screener OPM (numeric), then numeric ebitdaMargin, then sector default
+  // NOTE: data.ebitdaMargin may be string 'N/A' (from display()) — guard with typeof check
+  const rawMargin = data.opmPercent ?? (typeof data.ebitdaMargin === 'number' ? data.ebitdaMargin : null);
+  const ebitdaMargin = (typeof rawMargin === 'number' && rawMargin > 3 && rawMargin < 80)
+    ? Math.round(rawMargin * 10) / 10
     : SD.ebitdaMargin ?? DEFAULT_INPUTS.ebitdaMargin;
 
   // 4. Net Debt (₹ Cr) — CORRECT priority chain:
@@ -148,18 +149,20 @@ function buildInputsFromLive(data, stockInfo) {
   //    b) D/E × Shareholders' Equity (if equity known)
   //    c) D/E × (NetProfit × assumed P/E proxy) — rough
   //    d) Sector-agnostic default
+  // NOTE: data.debtEquity may be string 'N/A' (from display()) — only use if numeric
+  const debtEq = typeof data.debtEquity === 'number' ? data.debtEquity : null;
   let netDebt = DEFAULT_INPUTS.netDebt;
   if (data.totalBorrowings != null) {
     // May be negative (net cash position) — that's fine, equity += |net cash|
     netDebt = Math.round((data.totalBorrowings || 0) - (data.cashAndEquivalents || 0));
-  } else if (data.debtEquity != null && data.shareholderEquity != null && data.shareholderEquity > 0) {
-    netDebt = Math.round(data.debtEquity * data.shareholderEquity);
-  } else if (data.debtEquity != null && data.netProfitCr != null && data.netProfitCr > 0) {
+  } else if (debtEq != null && data.shareholderEquity != null && data.shareholderEquity > 0) {
+    netDebt = Math.round(debtEq * data.shareholderEquity);
+  } else if (debtEq != null && data.netProfitCr != null && data.netProfitCr > 0) {
     // Proxy: Net Debt ≈ D/E × (NetProfit × sector P/E estimate of ~15)
-    netDebt = Math.round(data.debtEquity * data.netProfitCr * 15);
-  } else if (data.debtEquity != null && revenueCr != null) {
+    netDebt = Math.round(debtEq * data.netProfitCr * 15);
+  } else if (debtEq != null && revenueCr != null) {
     // Last resort: rough D/E based on revenue scale
-    netDebt = Math.round(data.debtEquity * revenueCr * 0.15);
+    netDebt = Math.round(debtEq * revenueCr * 0.15);
   }
 
   // 5. Shares outstanding (crore shares) = MarketCap(Cr) / Price(₹)
@@ -243,8 +246,8 @@ export default function DCFValuation() {
         setCurrentPrice(live.price);
         setInputs(buildInputsFromLive(live, stockInfo));
         setLiveDataInfo({
-          revenue: live.revenueCr,
-          ebitdaMargin: live.ebitdaMargin ?? live.opmPercent,
+          revenue: live.revenueCr,  // numeric Cr or null (from api fix)
+          ebitdaMargin: live.opmPercent,  // numeric % or null — avoids 'N/A'.toFixed() crash
           netDebt: (live.totalBorrowings ?? 0) - (live.cashAndEquivalents ?? 0),
           shares: live.marketCapCr > 0 && live.price > 0 ? Math.round(live.marketCapCr / live.price * 100) / 100 : null,
           sector: detectSector(live.sector || stockInfo?.sector) || stockInfo?.sector,
