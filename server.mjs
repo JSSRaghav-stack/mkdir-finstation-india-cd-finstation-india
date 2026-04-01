@@ -376,6 +376,60 @@ async function fetchGiftNiftyData() {
   return result;
 }
 
+// ─── Gift Nifty live snapshot via MoneyControl (primary, 10s cache) ───────────
+const GIFT_NIFTY_API_URL = 'https://priceapi.moneycontrol.com/pricefeed/nseindia/futures/giftnifty';
+const GIFT_NIFTY_TIMEOUT_MS = 7000;
+const GIFT_NIFTY_CACHE_TTL_MS = 10000;
+let giftNiftyLiveCache = null;
+let giftNiftyLiveCacheAt = 0;
+
+function parseGiftNiftyPayload(payload) {
+  const raw = payload?.data || payload || {};
+  const price = parseFloat(String(
+    raw.pricecurrent ?? raw.lastprice ?? raw.last_price ?? raw.last ?? raw.close
+  ).replace(/,/g, ''));
+  const change = parseFloat(String(
+    raw.pricechange ?? raw.change ?? raw.pointchange ?? 0
+  ).replace(/,/g, ''));
+  const percent = parseFloat(String(
+    raw.percentchange ?? raw.pricechangepercent ?? raw.pChange ?? 0
+  ).replace(/,/g, ''));
+  if (!Number.isFinite(price) || price < 5000) return null;
+  return {
+    value:   Math.round(price   * 100) / 100,
+    points:  Number.isFinite(change)  ? Math.round(change   * 100) / 100 : 0,
+    change:  Number.isFinite(percent) ? Math.round(percent  * 100) / 100 : 0,
+    source: 'MoneyControl',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function fetchGiftNiftyLiveSnapshot() {
+  const now = Date.now();
+  if (giftNiftyLiveCache && (now - giftNiftyLiveCacheAt) < GIFT_NIFTY_CACHE_TTL_MS) {
+    return giftNiftyLiveCache;
+  }
+  const mcHeaders = {
+    ...JSON_HEADERS,
+    'Referer': 'https://www.moneycontrol.com/',
+    'Origin':  'https://www.moneycontrol.com',
+  };
+  try {
+    const res = await httpsGet(GIFT_NIFTY_API_URL, mcHeaders, GIFT_NIFTY_TIMEOUT_MS);
+    if (res.status !== 200) throw new Error(`MoneyControl ${res.status}`);
+    const parsed = parseGiftNiftyPayload(JSON.parse(res.data || '{}'));
+    if (!parsed) throw new Error('Invalid MoneyControl payload');
+    giftNiftyLiveCache = parsed;
+    giftNiftyLiveCacheAt = now;
+    console.log(`[GiftNifty] MoneyControl ✓ ${parsed.value} (${parsed.change > 0 ? '+' : ''}${parsed.change}%)`);
+    return parsed;
+  } catch (e) {
+    console.warn(`[GiftNifty] MoneyControl failed: ${e.message}`);
+    if (giftNiftyLiveCache) return giftNiftyLiveCache; // serve stale on error
+    return null;
+  }
+}
+
 // ─── Screener.in helpers ───────────────────────────────────────────────────
 
 // Simple in-memory cache for Screener data (5-min TTL)
@@ -1848,7 +1902,10 @@ const server = createServer(async (req, res) => {
       }
 
     } else if (pathname === '/api/gift-nifty') {
-      const data = await fetchGiftNiftyData();
+      // Primary: MoneyControl direct feed (most reliable, 10s cache)
+      // Fallback: multi-source scraper (Yahoo / NSE blob / Google)
+      let data = await fetchGiftNiftyLiveSnapshot();
+      if (!data) data = await fetchGiftNiftyData();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: !!data, data: data || null }));
 
