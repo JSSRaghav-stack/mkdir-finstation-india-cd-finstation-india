@@ -67,17 +67,19 @@ async function fetchGiftNiftyLive() {
 }
 
 export async function fetchIndices() {
-  // Fetch main indices + Gift Nifty in parallel
-  const [quotes, giftData] = await Promise.all([
-    fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X'),
+  // Fetch main indices + Gift Nifty (included in bulk Yahoo quote) in parallel
+  // ^GIFTNIFTY is now in the same bulk call as ^NSEI/^BSESN — most reliable source
+  const [quotes, giftFallback] = await Promise.all([
+    fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X,^GIFTNIFTY'),
     fetchGiftNiftyLive(),
   ]);
   if (!quotes) return null;
   const find = (sym) => quotes.find(q => q.symbol === sym);
-  const nsei = find('^NSEI');
+  const nsei  = find('^NSEI');
   const bsesn = find('^BSESN');
-  const vix = find('^INDIAVIX');
-  const usd = find('USDINR=X');
+  const vix   = find('^INDIAVIX');
+  const usd   = find('USDINR=X');
+  const giftQ = find('^GIFTNIFTY');
 
   // Fix USD/INR — if value looks too small (< 10), it may be inverted (USD per INR)
   let usdinrValue = usd?.regularMarketPrice || 0;
@@ -85,12 +87,19 @@ export async function fetchIndices() {
     usdinrValue = Math.round((1 / usdinrValue) * 100) / 100;
   }
 
+  // Gift Nifty: prefer Yahoo bulk quote (same pipeline as Nifty/Sensex, most reliable)
+  // Fallback to dedicated /api/gift-nifty endpoint (MoneyControl / NSE blob / Google)
+  const giftFromYahoo = giftQ?.regularMarketPrice > 5000
+    ? { value: giftQ.regularMarketPrice, change: giftQ.regularMarketChangePercent, points: giftQ.regularMarketChange, source: 'Yahoo' }
+    : null;
+  const giftData = giftFromYahoo || (giftFallback?.value > 0 ? giftFallback : null);
+
   return {
-    nifty: nsei ? { value: nsei.regularMarketPrice, change: nsei.regularMarketChangePercent, points: nsei.regularMarketChange } : null,
-    sensex: bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
-    vix: vix ? { value: vix.regularMarketPrice, change: vix.regularMarketChangePercent, points: vix.regularMarketChange } : null,
-    usdinr: usd ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
-    giftNifty: giftData && giftData.value > 0 ? giftData : null,
+    nifty:    nsei  ? { value: nsei.regularMarketPrice,  change: nsei.regularMarketChangePercent,  points: nsei.regularMarketChange  } : null,
+    sensex:   bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
+    vix:      vix   ? { value: vix.regularMarketPrice,   change: vix.regularMarketChangePercent,   points: vix.regularMarketChange   } : null,
+    usdinr:   usd   ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
+    giftNifty: giftData,
   };
 }
 
