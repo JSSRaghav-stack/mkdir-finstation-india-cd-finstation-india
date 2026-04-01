@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { MARKET_INDICES, ALL_NIFTY50, MOCK_NEWS } from '../data/mockData.js';
 import { formatVolume } from '../utils/formatters.js';
-import { fetchIndices, fetchNifty50Quotes, fetchChart, fetchIndiaNews, computeSectorHeatmap } from '../utils/api.js';
+import { fetchIndices, fetchNifty50Quotes, fetchChart, fetchIndiaNews, computeSectorHeatmap, fetchGiftNiftyLive } from '../utils/api.js';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -64,9 +64,9 @@ function ChartModal({ symbol, label, onClose }) {
   );
 }
 
-function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, onClick, symbol }) {
-  const isNA = value === 'N/A' || value === '—';
-  const isPositive = parseFloat(change) >= 0;
+function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, onClick, symbol, naLabel = 'Unavailable' }) {
+  const isNA = value === 'N/A' || value === '—' || value === 'Data unavailable';
+  const isPositive = parseFloat(change) > 0;
   return (
     <div className="rounded-xl p-4 card-hover h-full" onClick={onClick}
       style={{ background: '#12121a', border: '1px solid #1e1e2e', cursor: (symbol && onClick) ? 'pointer' : 'default' }}
@@ -84,7 +84,7 @@ function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, 
           </div>
           {subtitle && <div className="text-xs mb-1" style={{ color: '#334155', fontSize: 9 }}>{subtitle}</div>}
           <div className="font-bold mb-1" style={{ color: isNA ? '#475569' : '#f1f5f9', fontSize: isNA ? 16 : 22 }}>
-            {isNA ? 'Unavailable' : value}
+            {isNA ? naLabel : value}
           </div>
           {!isNA && (
             <div className="flex items-center gap-1 flex-wrap">
@@ -95,7 +95,7 @@ function KPICard({ label, subtitle, badge, value, change, changeLabel, loading, 
             </div>
           )}
           {isNA && (
-            <div className="text-xs" style={{ color: '#334155' }}>Check NSE IFSC</div>
+            <div className="text-xs" style={{ color: '#334155' }}>{naLabel}</div>
           )}
         </>
       )}
@@ -207,6 +207,9 @@ export default function Dashboard() {
   const [chartModal, setChartModal] = useState(null);
   const [news, setNews] = useState(MOCK_NEWS);
   const [newsLive, setNewsLive] = useState(false);
+  const [giftNifty, setGiftNifty] = useState(null);
+  const [giftNiftyLoading, setGiftNiftyLoading] = useState(true);
+  const [giftNiftyError, setGiftNiftyError] = useState(false);
   const mounted = useRef(true);
 
   const loadData = useCallback(async () => {
@@ -231,14 +234,24 @@ export default function Dashboard() {
     if (liveNews.length > 0) { setNews(liveNews); setNewsLive(true); }
   }, []);
 
+  const loadGiftNifty = useCallback(async () => {
+    const data = await fetchGiftNiftyLive();
+    if (!mounted.current) return;
+    if (data) { setGiftNifty(data); setGiftNiftyError(false); }
+    else { setGiftNiftyError(true); }
+    setGiftNiftyLoading(false);
+  }, []);
+
   useEffect(() => {
     mounted.current = true;
     loadData();
+    loadGiftNifty();
     loadNews();
     const iv = setInterval(loadData, 10000);
-    const newsIv = setInterval(loadNews, 2 * 60 * 1000); // refresh news every 2 min
-    return () => { mounted.current = false; clearInterval(iv); clearInterval(newsIv); };
-  }, [loadData, loadNews]);
+    const giftIv = setInterval(loadGiftNifty, 10000);
+    const newsIv = setInterval(loadNews, 2 * 60 * 1000);
+    return () => { mounted.current = false; clearInterval(iv); clearInterval(giftIv); clearInterval(newsIv); };
+  }, [loadData, loadGiftNifty, loadNews]);
 
   const sorted = [...stocks].sort((a,b) => b.change - a.change);
   const gainers = sorted.slice(0,5);
@@ -281,17 +294,18 @@ export default function Dashboard() {
             changeLabel={`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`}
             loading={loading} onClick={() => setChartModal({symbol:'^BSESN',label:'Sensex'})} />
           <KPICard label="GIFT Nifty" subtitle="NSE IFSC · Futures"
-            badge={indices.giftNifty
+            badge={giftNifty
               ? { text: '● LIVE', bg: 'rgba(34,197,94,0.12)', color: '#22c55e' }
               : { text: 'FUTURES', bg: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
-            value={loading ? '—' : (indices.giftNifty
-              ? (indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})
-              : 'N/A')}
-            change={indices.giftNifty?.change??0}
-            changeLabel={indices.giftNifty
-              ? `(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`
+            value={giftNiftyLoading ? '—' : (giftNifty
+              ? (giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2})
+              : 'Data unavailable')}
+            change={giftNifty?.change ?? -0.01}
+            changeLabel={giftNifty
+              ? `(${(giftNifty.points??0)>=0?'+':''}${(giftNifty.points??0).toFixed(2)} pts) · ${fmtT(giftNifty.timestamp ? new Date(giftNifty.timestamp) : null)}`
               : ''}
-            loading={loading} />
+            loading={giftNiftyLoading}
+            naLabel={giftNiftyError ? 'Data unavailable' : 'Unavailable'} />
           <KPICard label="India VIX" subtitle="Volatility" symbol="^INDIAVIX"
             value={loading ? '—' : (indices.vix?.value??0).toFixed(2)}
             change={indices.vix?.change??0} loading={loading}
@@ -307,7 +321,7 @@ export default function Dashboard() {
             {[
               { label:'Nifty 50', subtitle:'NSE · Spot', symbol:'^NSEI', value:loading?'—':(indices.nifty?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}), change:indices.nifty?.change??0, changeLabel:`(${(indices.nifty?.points??0)>=0?'+':''}${(indices.nifty?.points??0).toFixed(2)} pts)`, onClick:() => setChartModal({symbol:'^NSEI',label:'Nifty 50'}) },
               { label:'Sensex', subtitle:'BSE · Spot', symbol:'^BSESN', value:loading?'—':(indices.sensex?.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}), change:indices.sensex?.change??0, changeLabel:`(${(indices.sensex?.points??0)>=0?'+':''}${(indices.sensex?.points??0).toFixed(2)} pts)`, onClick:() => setChartModal({symbol:'^BSESN',label:'Sensex'}) },
-              { label:'GIFT Nifty', subtitle:'NSE IFSC · Futures', badge:indices.giftNifty?{text:'● LIVE',bg:'rgba(34,197,94,0.12)',color:'#22c55e'}:{text:'FUTURES',bg:'rgba(99,102,241,0.12)',color:'#818cf8'}, value:loading?'—':(indices.giftNifty?(indices.giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}):'N/A'), change:indices.giftNifty?.change??0, changeLabel:indices.giftNifty?`(${(indices.giftNifty.points??0)>=0?'+':''}${(indices.giftNifty.points??0).toFixed(2)} pts)`:'' },
+              { label:'GIFT Nifty', subtitle:'NSE IFSC · Futures', badge:giftNifty?{text:'● LIVE',bg:'rgba(34,197,94,0.12)',color:'#22c55e'}:{text:'FUTURES',bg:'rgba(99,102,241,0.12)',color:'#818cf8'}, value:giftNiftyLoading?'—':(giftNifty?(giftNifty.value??0).toLocaleString('en-IN',{minimumFractionDigits:2}):'Data unavailable'), change:giftNifty?.change??-0.01, changeLabel:giftNifty?`(${(giftNifty.points??0)>=0?'+':''}${(giftNifty.points??0).toFixed(2)} pts) · ${fmtT(giftNifty.timestamp?new Date(giftNifty.timestamp):null)}`:'', loading:giftNiftyLoading, naLabel:giftNiftyError?'Data unavailable':'Unavailable' },
               { label:'India VIX', subtitle:'Volatility', symbol:'^INDIAVIX', value:loading?'—':(indices.vix?.value??0).toFixed(2), change:indices.vix?.change??0, onClick:() => setChartModal({symbol:'^INDIAVIX',label:'India VIX'}) },
               { label:'USD / INR', subtitle:'Forex', symbol:'USDINR=X', value:loading?'—':`₹${(indices.usdinr?.value??0).toFixed(2)}`, change:indices.usdinr?.change??0, onClick:() => setChartModal({symbol:'USDINR=X',label:'USD / INR'}) },
             ].map((p, i) => <div key={i} style={{ width: 150 }}><KPICard {...p} loading={loading} /></div>)}

@@ -422,10 +422,9 @@ function parseGiftNiftyPayload(payload) {
   ).replace(/,/g, ''));
   if (!Number.isFinite(price) || price < 5000) return null;
   return {
-    value:   Math.round(price   * 100) / 100,
-    points:  Number.isFinite(change)  ? Math.round(change   * 100) / 100 : 0,
-    change:  Number.isFinite(percent) ? Math.round(percent  * 100) / 100 : 0,
-    source: 'MoneyControl',
+    price:   Math.round(price   * 100) / 100,
+    change:  Number.isFinite(change)  ? Math.round(change   * 100) / 100 : 0,
+    percent: Number.isFinite(percent) ? Math.round(percent  * 100) / 100 : 0,
     timestamp: new Date().toISOString(),
   };
 }
@@ -447,12 +446,12 @@ async function fetchGiftNiftyLiveSnapshot() {
     if (!parsed) throw new Error('Invalid MoneyControl payload');
     giftNiftyLiveCache = parsed;
     giftNiftyLiveCacheAt = now;
-    console.log(`[GiftNifty] MoneyControl ✓ ${parsed.value} (${parsed.change > 0 ? '+' : ''}${parsed.change}%)`);
+    console.log(`[GiftNifty] MoneyControl ✓ ${parsed.price} (${parsed.percent > 0 ? '+' : ''}${parsed.percent}%)`);
     return parsed;
   } catch (e) {
     console.warn(`[GiftNifty] MoneyControl failed: ${e.message}`);
     if (giftNiftyLiveCache) return giftNiftyLiveCache; // serve stale on error
-    return null;
+    throw e; // propagate so endpoint returns 503
   }
 }
 
@@ -1928,15 +1927,20 @@ const server = createServer(async (req, res) => {
       }
 
     } else if (pathname === '/api/gift-nifty') {
-      // Priority order (all tried until one succeeds):
-      // 1. Yahoo Finance v8 chart API  — same proven pipeline as Nifty/Sensex charts
-      // 2. MoneyControl direct futures feed
-      // 3. Full multi-source scraper (Yahoo v7 / NSE blob / Google / NSE API)
-      let data = await fetchGiftNiftyFromYahooChart();
-      if (!data) data = await fetchGiftNiftyLiveSnapshot();
-      if (!data) data = await fetchGiftNiftyData();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: !!data, data: data || null }));
+      try {
+        const data = await fetchGiftNiftyLiveSnapshot();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (error) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          price: null,
+          change: null,
+          percent: null,
+          timestamp: new Date().toISOString(),
+          error: 'Data unavailable',
+        }));
+      }
 
     } else if (pathname === '/api/research') {
       // Proxy Anthropic API calls server-side

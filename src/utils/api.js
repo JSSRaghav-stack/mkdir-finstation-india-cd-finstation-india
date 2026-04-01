@@ -56,30 +56,30 @@ export async function searchStocks(query) {
   }
 }
 
-async function fetchGiftNiftyLive() {
+export async function fetchGiftNiftyLive() {
   try {
     const res = await fetch(`${API_BASE}/api/gift-nifty`, { signal: AbortSignal.timeout(8000) });
     const json = await res.json();
-    return json?.data || null;
+    if (!res.ok || typeof json?.price !== 'number') return null;
+    return {
+      value:     json.price,
+      points:    json.change,
+      change:    json.percent,
+      timestamp: json.timestamp,
+    };
   } catch {
     return null;
   }
 }
 
 export async function fetchIndices() {
-  // Fetch main indices + Gift Nifty (included in bulk Yahoo quote) in parallel
-  // ^GIFTNIFTY is now in the same bulk call as ^NSEI/^BSESN — most reliable source
-  const [quotes, giftFallback] = await Promise.all([
-    fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X,^GIFTNIFTY'),
-    fetchGiftNiftyLive(),
-  ]);
+  const quotes = await fetchQuote('^NSEI,^BSESN,^INDIAVIX,USDINR=X');
   if (!quotes) return null;
   const find = (sym) => quotes.find(q => q.symbol === sym);
   const nsei  = find('^NSEI');
   const bsesn = find('^BSESN');
   const vix   = find('^INDIAVIX');
   const usd   = find('USDINR=X');
-  const giftQ = find('^GIFTNIFTY');
 
   // Fix USD/INR — if value looks too small (< 10), it may be inverted (USD per INR)
   let usdinrValue = usd?.regularMarketPrice || 0;
@@ -87,19 +87,12 @@ export async function fetchIndices() {
     usdinrValue = Math.round((1 / usdinrValue) * 100) / 100;
   }
 
-  // Gift Nifty: prefer Yahoo bulk quote (same pipeline as Nifty/Sensex, most reliable)
-  // Fallback to dedicated /api/gift-nifty endpoint (MoneyControl / NSE blob / Google)
-  const giftFromYahoo = giftQ?.regularMarketPrice > 5000
-    ? { value: giftQ.regularMarketPrice, change: giftQ.regularMarketChangePercent, points: giftQ.regularMarketChange, source: 'Yahoo' }
-    : null;
-  const giftData = giftFromYahoo || (giftFallback?.value > 0 ? giftFallback : null);
-
   return {
     nifty:    nsei  ? { value: nsei.regularMarketPrice,  change: nsei.regularMarketChangePercent,  points: nsei.regularMarketChange  } : null,
     sensex:   bsesn ? { value: bsesn.regularMarketPrice, change: bsesn.regularMarketChangePercent, points: bsesn.regularMarketChange } : null,
     vix:      vix   ? { value: vix.regularMarketPrice,   change: vix.regularMarketChangePercent,   points: vix.regularMarketChange   } : null,
     usdinr:   usd   ? { value: usdinrValue, change: usd.regularMarketChangePercent, points: usd.regularMarketChange } : null,
-    giftNifty: giftData,
+    giftNifty: null,
   };
 }
 
@@ -278,27 +271,31 @@ export async function fetchAlphaVantageData(ticker) {
 // Null fields = data genuinely not available (never estimated/assumed).
 export async function fetchStockDetail(ticker) {
   try {
-    const res = await fetch(
-      `${API_BASE}/api/stock-normalized?symbol=${encodeURIComponent(ticker)}`,
-      { signal: AbortSignal.timeout(40000) }, // Screener can be slow
-    );
-    const json = await res.json();
+    const [normalizedRes, screenerRaw] = await Promise.all([
+      fetch(
+        `${API_BASE}/api/stock-normalized?symbol=${encodeURIComponent(ticker)}`,
+        { signal: AbortSignal.timeout(40000) },
+      ),
+      fetchScreenerData(ticker),
+    ]);
+    const json = await normalizedRes.json();
     if (!json?.success || !json.data) return null;
 
     const d = json.data;
-
-    // Normalise null → 'N/A' for display fields that expect a string sentinel
+    const s = screenerRaw || {};
+    // n(): screener-only numeric — null if not a finite number (no fallback to server data)
+    const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
     const num = (v) => (v !== null && v !== undefined ? v : null);
     const display = (v) => (v !== null && v !== undefined ? v : 'N/A');
 
     return {
-      // Identity
+      // Identity (from server — screener doesn't provide these)
       name:        d.name        || ticker.replace(/\.(NS|BO)$/i, ''),
       ticker:      d.ticker      || ticker,
       sector:      d.sector      || 'N/A',
       exchange:    d.exchange    || 'NSE',
       description: d.description || null,
-      // Price & market
+      // Price & market (from server — real-time)
       price:       num(d.price)    || 0,
       marketCap:   d.marketCapCr   ? d.marketCapCr.toString() : 'N/A',
       marketCapCr: num(d.marketCapCr) || 0,
@@ -311,36 +308,36 @@ export async function fetchStockDetail(ticker) {
       volume:      num(d.volume)   || 0,
       change:      num(d.change)   || 0,
       changePct:   num(d.changePct)|| 0,
-      // Fundamentals — null means genuinely not available
-      pe:            display(d.pe),
-      pb:            display(d.pb),
-      eps:           display(d.eps),
-      roe:           display(d.roe),
-      roce:          display(d.roce),
-      ebitdaMargin:  display(d.ebitdaMargin),
+      // Fundamentals — SCREENER-ONLY (null if screener didn't return it)
+      pe:            display(n(s.pe)),
+      pb:            display(d.pb),   // screener doesn't have P/B
+      eps:           display(n(s.eps)),
+      roe:           display(n(s.roe)),
+      roce:          display(n(s.roce)),
+      ebitdaMargin:  display(d.ebitdaMargin), // keep server value for display
       netMargin:     display(d.netMargin),
       dividendYield: d.dividendYield ?? 0,
-      bookValue:     display(d.bookValue),
-      debtEquity:    display(d.debtEquity),
-      currentRatio:  display(d.currentRatio),
+      bookValue:     display(n(s.bookValue)),
+      debtEquity:    display(n(s.debtEquity)),
+      currentRatio:  display(n(s.currentRatio)),
       evEbitda:      display(d.evEbitda),
       beta:          display(d.beta),
-      // Financials (internal unit: Cr × 100 for legacy compat)
-      revenue:    d.revenue    ?? 0, // already in Cr*100 from server
-      netProfit:  d.netProfit  ?? 0,
-      // Raw Crore values for DCF/LBO calculations (numeric or null, never 'N/A')
-      revenueCr:   num(d.revenueCr),
-      netProfitCr: num(d.netProfitCr),
-      opmPercent:  num(d.opmPercent),
-      // Balance sheet (for DCF net debt)
-      totalBorrowings:    num(d.totalBorrowings),
-      cashAndEquivalents: num(d.cashAndEquivalents),
-      shareholderEquity:  num(d.shareholderEquity),
-      // Analyst (IndianAPI)
+      // Financials (Cr×100 legacy)
+      revenue:    d.revenue   ?? 0,
+      netProfit:  d.netProfit ?? 0,
+      // DCF/LBO fields — SCREENER-ONLY numeric values (null = not found on screener)
+      revenueCr:          n(s.revenueCr),
+      netProfitCr:        n(s.netProfitCr),
+      opmPercent:         n(s.opmPercent),
+      totalBorrowings:    n(s.totalBorrowings),
+      cashAndEquivalents: n(s.cashAndEquivalents),
+      shareholderEquity:  n(s.shareholderEquity),
+      // Analyst (IndianAPI via server)
       analystRating:  d.analystRating  || null,
       analystReco:    d.analystReco    || null,
       shortTermTrend: d.shortTermTrend || null,
       longTermTrend:  d.longTermTrend  || null,
+      dataProvider: screenerRaw ? 'screener' : 'mixed',
     };
   } catch (e) {
     console.warn('fetchStockDetail error:', e.message);

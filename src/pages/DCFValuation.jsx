@@ -252,7 +252,7 @@ export default function DCFValuation() {
           shares: live.marketCapCr > 0 && live.price > 0 ? Math.round(live.marketCapCr / live.price * 100) / 100 : null,
           sector: detectSector(live.sector || stockInfo?.sector) || stockInfo?.sector,
         });
-        setDataSource('live');
+        setDataSource(live.dataProvider === 'screener' ? 'screener' : 'live');
       } else {
         setDataSource('default');
         setLiveDataInfo(null);
@@ -304,14 +304,17 @@ export default function DCFValuation() {
             accentColor="#10b981"
             disabled={fetchingStock}
           />
-          {dataSource === 'live' && (
+          {(dataSource === 'live' || dataSource === 'screener') && (
             <div className="mt-1 text-xs" style={{ color: '#4ade80' }}>● Live data loaded</div>
           )}
+          {dataSource === 'screener' && (
+            <div className="mt-1 text-xs" style={{ color: '#22c55e' }}>Connected to Screener data</div>
+          )}
           {dataSource === 'default' && (
-            <div className="mt-1 text-xs" style={{ color: '#94a3b8' }}>Using default assumptions</div>
+            <div className="mt-1 text-xs" style={{ color: '#f87171' }}>Screener data unavailable</div>
           )}
           {/* Live data debug card — shows what was auto-filled */}
-          {dataSource === 'live' && liveDataInfo && (
+          {(dataSource === 'live' || dataSource === 'screener') && liveDataInfo && (
             <div className="mt-2 rounded-lg p-2" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
               <div className="text-xs font-semibold mb-1" style={{ color: '#4ade80' }}>Auto-filled from Screener</div>
               <div className="space-y-0.5">
