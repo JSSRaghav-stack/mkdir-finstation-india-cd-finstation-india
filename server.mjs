@@ -1949,7 +1949,7 @@ const server = createServer(async (req, res) => {
         req.on('data', (chunk) => (body += chunk));
         req.on('end', resolve);
       });
-      const { prompt, apiKey, model = 'claude-sonnet-4-5', maxTokens = 1600 } = JSON.parse(body || '{}');
+      const { prompt, apiKey, model = 'claude-sonnet-4-6', maxTokens = 1600 } = JSON.parse(body || '{}');
       if (!prompt) throw new Error('prompt required');
       const key = apiKey || ANTHROPIC_API_KEY || '';
       if (!key) throw new Error('NO_API_KEY');
@@ -1987,7 +1987,7 @@ const server = createServer(async (req, res) => {
         const errData = JSON.parse(anthropicRes.data || '{}');
         throw new Error(errData?.error?.message || `API error ${anthropicRes.status}`);
       }
-      res.writeHead(200);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(anthropicRes.data);
 
     } else {

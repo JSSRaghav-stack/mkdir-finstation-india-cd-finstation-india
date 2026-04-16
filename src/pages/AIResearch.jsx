@@ -278,15 +278,18 @@ Structure the report as:
 Use ₹ for currency. Use the exact financial figures provided above. Sound like a real sell-side research note from IIFL, Motilal Oswal, or Kotak Securities.`;
 
     const reportDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    // Use same-origin /api/research in production; localhost:3001 only in local dev
+    const apiBase = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ? 'http://localhost:3001' : '';
     try {
       // Try server-side proxy first (avoids CORS, key stays server-side)
-      const serverRes = await fetch('http://localhost:3001/api/research', {
+      const serverRes = await fetch(`${apiBase}/api/research`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,
           apiKey,
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-6',
           maxTokens: reportType === 'Quick Note' ? 800 : 1600,
         }),
         signal: AbortSignal.timeout(40000),
@@ -294,7 +297,6 @@ Use ₹ for currency. Use the exact financial figures provided above. Sound like
 
       if (serverRes.ok) {
         const data = await serverRes.json();
-        if (data.error === 'NO_API_KEY') throw new Error('NO_API_KEY');
         const text = data.content?.[0]?.text || '';
         stopLoadingMessages();
         setReport(text);
@@ -303,7 +305,9 @@ Use ₹ for currency. Use the exact financial figures provided above. Sound like
         setLoading(false);
         return;
       }
-      throw new Error('Server error');
+      // Parse error body from non-2xx response
+      const errData = await serverRes.json().catch(() => ({}));
+      throw new Error(errData?.error || 'Server error');
     } catch (e) {
       // If API key provided but server proxy failed, try direct browser call
       if (apiKey && e.message !== 'NO_API_KEY') {
